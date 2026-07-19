@@ -152,7 +152,13 @@ Poza MVP (świadomie później): mobile/dotyk, więcej klas i krain, boss, dźwi
 
 ---
 
-## Backlog pomysłów (surowe notatki — oryginał z 2026-07-19)
+## Backlog pomysłów
+
+### Zaparkowany pivot (2026-07-19) — „Tibia-like" *(porzucony po dyskusji o skali, ale elementy mogą wrócić)*
+> Otwarty spory świat (ładowane mapy) · mobki o różnym poziomie trudności · brutalna śmierć: utrata założonych itemów i expa · 2 frakcje: **owady vs rośliny** · rasa w ramach frakcji (drzewo/kwiat… vs żuk/modliszka/ważka…) · osobno profesja (paladyn/wojownik/monk…) · wbudowane PvP · podróże między biomami rakietą kupowaną u NPC (część gry w kosmosie).
+> Wnioski z dyskusji: pełne MMO = grobowiec solo deva; realny wariant to prywatny serwer dla znajomych (model OTS); PvP + utrata itemów wymaga autorytatywnego serwera. Frakcje owady/rośliny i brutalna śmierć to pomysły warte rozważenia nawet w mniejszej grze.
+
+### Surowe notatki — oryginał z 2026-07-19
 
 > - w sumie kopia na przeglądarkę Brotato (ale wymyślę coś ciekawszego niż ziemniaki)
 > - na początek zrobimy slashera z mobkami

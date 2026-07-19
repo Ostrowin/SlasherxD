@@ -2,8 +2,10 @@
 
 ## Do decyzji
 
-- [ ] **Wybrać motyw gry** — 3 kandydaci opisani w [gdd.md](gdd.md) sekcja 9 (Glitch Slasher / Capy Blade / Roomba Rampage) albo nowa runda pomysłów. Ramy ustalone: absurd + neon, humor wizualny, teksty EN, motyw ma wybaczać proste assety. *(odłożone 2026-07-19 — „ja pomyślę, wrócimy do tego")*
-  - Opcjonalnie przed decyzją: druga opinia niezależnego AI o konceptach.
+- [ ] **KIERUNEK GRY** *(najważniejsza otwarta decyzja, 2026-07-19)* — użytkownik przemyśliwuje wizję. Stałe: **kilku graczy** (skala znajomych, nie MMO), przeglądarka, Phaser + deterministyczny rdzeń. Na stole m.in.:
+  - a) oryginalny survivors-like (GDD jak jest) — wtedy wraca decyzja o motywie: 3 kandydaci w gdd.md sekcja 9 (Glitch Slasher / Capy Blade / Roomba Rampage); uwaga: ramy „absurd + humor" zostały w międzyczasie zakwestionowane przez użytkownika,
+  - b) elementy zaparkowanego pivotu „Tibia-like" w małej skali (gdd.md → Backlog): frakcje owady vs rośliny, brutalna śmierć z utratą itemów, PvP na prywatnym serwerze dla znajomych,
+  - c) coś nowego — do przyniesienia przez użytkownika.
 
 ## Dalej (po decyzji o motywie)
 
