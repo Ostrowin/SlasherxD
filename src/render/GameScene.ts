@@ -21,6 +21,8 @@ export class GameScene extends Phaser.Scene {
   private projectileSprites: Phaser.GameObjects.Image[] = [];
   private meleeRing!: Phaser.GameObjects.Arc;
   private lastSeenMeleeTick = -1;
+  private skillCone!: Phaser.GameObjects.Graphics;
+  private lastSeenSkillTick = -1;
 
   private hud!: Phaser.GameObjects.Text;
   private deathText!: Phaser.GameObjects.Text;
@@ -38,6 +40,7 @@ export class GameScene extends Phaser.Scene {
     m: Phaser.Input.Keyboard.Key;
     r: Phaser.Input.Keyboard.Key;
     c: Phaser.Input.Keyboard.Key;
+    space: Phaser.Input.Keyboard.Key;
   };
 
   constructor() {
@@ -64,6 +67,7 @@ export class GameScene extends Phaser.Scene {
       .circle(0, 0, this.cls.meleeRange, 0x39ff14, 0)
       .setStrokeStyle(3, this.cls.color, 1)
       .setVisible(false);
+    this.skillCone = this.add.graphics().setDepth(5);
 
     this.playerSprite = this.add
       .image(this.world.playerX, this.world.playerY, 'box-player')
@@ -109,6 +113,7 @@ export class GameScene extends Phaser.Scene {
       m: kb.addKey(Phaser.Input.Keyboard.KeyCodes.M),
       r: kb.addKey(Phaser.Input.Keyboard.KeyCodes.R),
       c: kb.addKey(Phaser.Input.Keyboard.KeyCodes.C),
+      space: kb.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE),
     };
   }
 
@@ -139,6 +144,7 @@ export class GameScene extends Phaser.Scene {
     return {
       moveX: (k.right.isDown || k.d.isDown ? 1 : 0) - (k.left.isDown || k.a.isDown ? 1 : 0),
       moveY: (k.down.isDown || k.s.isDown ? 1 : 0) - (k.up.isDown || k.w.isDown ? 1 : 0),
+      attack: k.space.isDown,
       debugSpawn: k.m.isDown,
     };
   }
@@ -178,9 +184,10 @@ export class GameScene extends Phaser.Scene {
         if (s.visible) s.setVisible(false);
         continue;
       }
-      if (!s.visible) {
-        s.setVisible(true).setTint(ENEMIES[m.defIndex].color);
-      }
+      if (!s.visible) s.setVisible(true);
+      // Hit-flash: świeżo trafiony mob świeci na biało przez ~2 ticki.
+      if (w.tick - m.lastHitTick <= 2) s.setTintFill(0xffffff);
+      else s.setTint(ENEMIES[m.defIndex].color);
       s.setPosition(Phaser.Math.Linear(m.prevX, m.x, alpha), Phaser.Math.Linear(m.prevY, m.y, alpha));
     }
 
@@ -202,16 +209,36 @@ export class GameScene extends Phaser.Scene {
       this.tweens.add({ targets: this.meleeRing, alpha: 0, duration: 180 });
     }
 
+    // Wachlarz Power Slasha: rysowany raz przy użyciu, znika tweenem.
+    if (w.lastSkillTick !== this.lastSeenSkillTick) {
+      this.lastSeenSkillTick = w.lastSkillTick;
+      const range = this.cls.meleeRange * C.SKILL_RANGE_MULT;
+      const angle = Math.atan2(w.lastSkillDirY, w.lastSkillDirX);
+      const half = Math.acos(C.SKILL_CONE_COS);
+      this.skillCone
+        .clear()
+        .fillStyle(this.cls.color, 0.4)
+        .slice(this.playerSprite.x, this.playerSprite.y, range, angle - half, angle + half)
+        .fillPath()
+        .setAlpha(1);
+      this.tweens.add({ targets: this.skillCone, alpha: 0, duration: 220 });
+      this.cameras.main.shake(90, 0.004);
+    }
+
     if (w.playerHp < this.lastSeenHp) this.cameras.main.flash(120, 255, 40, 80);
     this.lastSeenHp = w.playerHp;
   }
 
   private updateHud(): void {
     const w = this.world;
+    const skill =
+      w.skillCooldown <= 0
+        ? 'SLASH ready'
+        : `SLASH ${(w.skillCooldown * C.TICK_DT).toFixed(1)}s`;
     this.hud.setText(
       `${this.cls.name}  |  FPS ${Math.round(this.game.loop.actualFps)}  |  mobs ${w.aliveMobs}  |  ` +
-        `HP ${w.playerHp}/${this.cls.maxHp}  |  kills ${w.kills}  |  tick ${w.tick}\n` +
-        `WASD/arrows: move   hold M: spawn mobs (dev)`,
+        `HP ${w.playerHp}/${this.cls.maxHp}  |  kills ${w.kills}  |  ${skill}\n` +
+        `WASD/arrows: move   SPACE: power slash   hold M: spawn mobs (dev)`,
     );
   }
 

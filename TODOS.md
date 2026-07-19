@@ -13,7 +13,8 @@
 
 ## Dalej (po decyzji o motywie)
 
-- [ ] Rozstrzygnąć model walki: aktywna / auto / hybryda (gdd.md 5.1)
+- [x] ~~Rozstrzygnąć model walki~~ — **HYBRYDA (D10, 2026-07-19):** auto-atak + aktywne skille na klawisze/kombinacje, dużo pasywów; v1 (Power Slash pod spacją) wdrożone
+- [ ] Zaprojektować system kombinacji klawiszy dla skilli (składnia combo, buforowanie inputu, czytelność dla gracza; uwaga na lockstep — input rozszerzy się o przyciski skilli)
 - [ ] Zatwierdzić zakres MVP (gdd.md sekcja 10)
 - [ ] Init projektu: Phaser 3 + TypeScript (decyzja z 2026-07-19) — **z deterministycznym rdzeniem** (gdd.md sekcja 7, decyzja 2026-07-19)
 

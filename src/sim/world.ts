@@ -28,6 +28,8 @@ export interface SimInput {
   /** Kierunek ruchu, każda oś w {-1, 0, 1}; normalizacja po stronie symulacji. */
   moveX: number;
   moveY: number;
+  /** Aktywny skill (Power Slash) — model hybrydowy, decyzja D10 2026-07-19. */
+  attack: boolean;
   /** Dev-helper (klawisz M): natychmiastowy spawn 50 mobków do testu wydajności. */
   debugSpawn: boolean;
 }
@@ -45,6 +47,8 @@ export interface Mob {
   speed: number;
   /** Ticki do następnego strzału (tylko typy ranged). */
   attackCooldown: number;
+  /** Tick ostatniego otrzymanego ciosu — render robi z tego biały hit-flash. */
+  lastHitTick: number;
 }
 
 export interface Projectile {
@@ -75,6 +79,15 @@ export class World {
   /** Tick, w którym ostatnio wykonano atak — render czyta to dla efektu wizualnego. */
   lastMeleeTick = -1;
 
+  /** Kierunek patrzenia (ostatni niezerowy ruch) — w tę stronę idzie Power Slash. */
+  facingX = 1;
+  facingY = 0;
+  /** Power Slash (hybryda, D10): cooldown w tickach + dane ostatniego użycia dla renderu. */
+  skillCooldown = 0;
+  lastSkillTick = -1;
+  lastSkillDirX = 1;
+  lastSkillDirY = 0;
+
   /** Poole o stałym rozmiarze — zero alokacji w trakcie gry. */
   readonly mobs: Mob[] = [];
   readonly projectiles: Projectile[] = [];
@@ -92,7 +105,7 @@ export class World {
     for (let i = 0; i < C.MOB_CAP; i++) {
       this.mobs.push({
         alive: false, defIndex: 0, x: 0, y: 0, prevX: 0, prevY: 0,
-        hp: 0, speed: 0, attackCooldown: 0,
+        hp: 0, speed: 0, attackCooldown: 0, lastHitTick: -100,
       });
     }
     for (let i = 0; i < C.PROJECTILE_CAP; i++) {
@@ -117,6 +130,7 @@ export class World {
     this.moveMobsAndShoot();
     this.stepProjectiles();
     this.applyMelee();
+    this.applySkill(input.attack);
     this.applyContactDamage();
   }
 
@@ -144,6 +158,8 @@ export class World {
       const len = Math.sqrt(dx * dx + dy * dy);
       dx /= len;
       dy /= len;
+      this.facingX = dx;
+      this.facingY = dy;
       this.playerX += dx * this.cls.speed * C.TICK_DT;
       this.playerY += dy * this.cls.speed * C.TICK_DT;
       this.playerX = Math.min(Math.max(this.playerX, C.PLAYER_RADIUS), C.WORLD_W - C.PLAYER_RADIUS);
@@ -313,11 +329,52 @@ export class World {
       const dy = m.y - this.playerY;
       if (dx * dx + dy * dy > r2) return;
       m.hp -= this.cls.meleeDamage;
+      m.lastHitTick = this.tick;
       if (m.hp <= 0) {
         m.alive = false;
         this.aliveMobs--;
         this.kills++;
       }
+    });
+  }
+
+  /**
+   * Power Slash — aktywny skill hybrydy (D10): stożek 120° w kierunku patrzenia,
+   * potrojone obrażenia, knockback, cooldown. Docelowo: skille per klasa
+   * odpalane klawiszami i kombinacjami klawiszy (TODOS.md).
+   */
+  private applySkill(attackPressed: boolean): void {
+    if (this.skillCooldown > 0) this.skillCooldown--;
+    if (!attackPressed || this.skillCooldown > 0) return;
+    this.skillCooldown = C.SKILL_COOLDOWN_TICKS;
+    this.lastSkillTick = this.tick;
+    this.lastSkillDirX = this.facingX;
+    this.lastSkillDirY = this.facingY;
+
+    const range = this.cls.meleeRange * C.SKILL_RANGE_MULT;
+    const r2 = range * range;
+    const damage = this.cls.meleeDamage * C.SKILL_DAMAGE_MULT;
+    this.hash.forEachNear(this.playerX, this.playerY, range, (i) => {
+      const m = this.mobs[i];
+      if (!m.alive) return;
+      const dx = m.x - this.playerX;
+      const dy = m.y - this.playerY;
+      const d2 = dx * dx + dy * dy;
+      if (d2 > r2 || d2 === 0) return;
+      const d = Math.sqrt(d2);
+      // Test stożka: kąt między kierunkiem patrzenia a wektorem do moba.
+      if ((dx / d) * this.facingX + (dy / d) * this.facingY < C.SKILL_CONE_COS) return;
+      m.hp -= damage;
+      m.lastHitTick = this.tick;
+      if (m.hp <= 0) {
+        m.alive = false;
+        this.aliveMobs--;
+        this.kills++;
+        return;
+      }
+      // Knockback: natychmiastowe odepchnięcie wzdłuż wektora od gracza.
+      m.x = Math.min(Math.max(m.x + (dx / d) * C.SKILL_KNOCKBACK, C.MOB_RADIUS), C.WORLD_W - C.MOB_RADIUS);
+      m.y = Math.min(Math.max(m.y + (dy / d) * C.SKILL_KNOCKBACK, C.MOB_RADIUS), C.WORLD_H - C.MOB_RADIUS);
     });
   }
 

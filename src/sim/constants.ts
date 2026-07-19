@@ -28,5 +28,17 @@ export const PROJECTILE_CAP = 200;
 export const PROJECTILE_RADIUS = 6;
 export const PROJECTILE_TTL_TICKS = Math.round(4 * TICK_RATE);
 
+/**
+ * Power Slash — pierwszy aktywny skill modelu hybrydowego (D10 2026-07-19).
+ * Parametry względem statystyk klasy; docelowo skille per klasa + kombinacje klawiszy.
+ */
+export const SKILL_RANGE_MULT = 1.9;
+export const SKILL_DAMAGE_MULT = 3;
+/** Cos połowy kąta stożka: 0.5 = stożek 120°. */
+export const SKILL_CONE_COS = 0.5;
+/** Natychmiastowe odepchnięcie trafionych mobków (px). */
+export const SKILL_KNOCKBACK = 70;
+export const SKILL_COOLDOWN_TICKS = Math.round(3 * TICK_RATE);
+
 /** Rozmiar komórki spatial hasha — ~2x promień moba wystarcza. */
 export const HASH_CELL_SIZE = 64;

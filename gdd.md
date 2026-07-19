@@ -54,9 +54,11 @@ Steam w maju 2026 oficjalnie uznał ten gatunek za osobną kategorię ("Bullet H
 
 ## 5. Systemy gry (pomysły z notatek, do rozwinięcia)
 
-### 5.1 Walka (slasher)
-- Walka wręcz z hordami mobków — to rdzeń gry.
-- **Do rozstrzygnięcia:** atak aktywny (klik/przycisk), auto-atak jak w VS, czy hybryda (auto-atak + aktywne umiejętności)? Hybryda najlepiej znosi przejście na mobile (dotyk).
+### 5.1 Walka (slasher) — hybryda *(zdecydowane 2026-07-19, D10)*
+- **Model hybrydowy:** auto-atak (słabszy, krótki zasięg) czyści tłum wokół + **aktywne skille odpalane klawiszami i kombinacjami klawiszy** (docelowo przeważnie kombinacjami — pomysł użytkownika).
+- **Dużo pasywów** w przyszłych drzewkach umiejętności — filozofia buildów.
+- Wdrożone v1: auto-atak (koło, interwał z klasy) + **Power Slash** (spacja): stożek 120° w kierunku ruchu, zasięg x1.9, obrażenia x3, knockback, cooldown 3 s.
+- **Do zaprojektowania:** system kombinacji klawiszy (składnia, buforowanie inputu, czytelność), skille per klasa.
 
 ### 5.2 Mobki i fale — najeźdźcy z kosmosu *(zdecydowane 2026-07-19)*
 Cztery typy najeźdźców na start (grafika: na razie kolory, sci-fi sprite'y później):
@@ -168,6 +170,7 @@ Poza MVP (świadomie później): mobile/dotyk, więcej klas i krain, boss, dźwi
 | 2026-07-19 | **Motyw: ssaki vs najeźdźcy z kosmosu, neon sci-fi** | Pomysł użytkownika; absurd/humor porzucone; pivot Tibia-like odrzucony (za duży), ale duch "zwierzaki + klasy" przetrwał w małej skali |
 | 2026-07-19 | **10 klas-ssaków od startu; klasa = kolor + statystyki** | Bez grafik na razie; drzewka umiejętności i sci-fi bronie w przyszłości; itemy wspólne dla wszystkich klas |
 | 2026-07-19 | **Co-op 1-8 graczy** | Skala "dla ziomeczków" potwierdzona; 8 graczy wykonalne w lockstepie (sieć przesyła tylko inputy) |
+| 2026-07-19 | **Model walki: hybryda (D10)** — auto-atak + aktywne skille na klawisze/kombinacje, dużo pasywów | Auto niesie hordę i port mobile; aktywne skille dają slasher-feel; kombinacje klawiszy = wyróżnik do zaprojektowania |
 
 ---
 
