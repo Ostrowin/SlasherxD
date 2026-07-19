@@ -30,15 +30,12 @@ export class GameScene extends Phaser.Scene {
   private deathText!: Phaser.GameObjects.Text;
   private lastSeenHp = 0;
 
+  /** Tryb celowania (stan UI, nie symulacji): spacja włącza, LMB zatwierdza cios. */
+  private aiming = false;
+  private lmbWasDown = false;
+  private aimPreview!: Phaser.GameObjects.Graphics;
+
   private keys!: {
-    up: Phaser.Input.Keyboard.Key;
-    down: Phaser.Input.Keyboard.Key;
-    left: Phaser.Input.Keyboard.Key;
-    right: Phaser.Input.Keyboard.Key;
-    w: Phaser.Input.Keyboard.Key;
-    s: Phaser.Input.Keyboard.Key;
-    a: Phaser.Input.Keyboard.Key;
-    d: Phaser.Input.Keyboard.Key;
     m: Phaser.Input.Keyboard.Key;
     r: Phaser.Input.Keyboard.Key;
     c: Phaser.Input.Keyboard.Key;
@@ -65,11 +62,17 @@ export class GameScene extends Phaser.Scene {
     this.createTextures();
     this.add.tileSprite(0, 0, C.WORLD_W, C.WORLD_H, 'grid').setOrigin(0, 0).setAlpha(0.35);
 
+    // Przeszkody terenu (statyczne, z symulacji — ta sama mapa co logika kolizji).
+    for (const o of this.world.obstacles) {
+      this.add.circle(o.x, o.y, o.r, 0x101825).setStrokeStyle(2, 0x2244aa);
+    }
+
     this.meleeRing = this.add
       .circle(0, 0, this.cls.meleeRange, 0x39ff14, 0)
       .setStrokeStyle(3, this.cls.color, 1)
       .setVisible(false);
     this.skillCone = this.add.graphics().setDepth(5);
+    this.aimPreview = this.add.graphics().setDepth(5);
     // Marker celu ruchu (Dota-style): zielony pierścień w miejscu kliknięcia RMB.
     this.moveMarker = this.add
       .circle(0, 0, 18, 0x39ff14, 0)
@@ -111,19 +114,13 @@ export class GameScene extends Phaser.Scene {
 
     const kb = this.input.keyboard!;
     this.keys = {
-      up: kb.addKey(Phaser.Input.Keyboard.KeyCodes.UP),
-      down: kb.addKey(Phaser.Input.Keyboard.KeyCodes.DOWN),
-      left: kb.addKey(Phaser.Input.Keyboard.KeyCodes.LEFT),
-      right: kb.addKey(Phaser.Input.Keyboard.KeyCodes.RIGHT),
-      w: kb.addKey(Phaser.Input.Keyboard.KeyCodes.W),
-      s: kb.addKey(Phaser.Input.Keyboard.KeyCodes.S),
-      a: kb.addKey(Phaser.Input.Keyboard.KeyCodes.A),
-      d: kb.addKey(Phaser.Input.Keyboard.KeyCodes.D),
       m: kb.addKey(Phaser.Input.Keyboard.KeyCodes.M),
       r: kb.addKey(Phaser.Input.Keyboard.KeyCodes.R),
       c: kb.addKey(Phaser.Input.Keyboard.KeyCodes.C),
       space: kb.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE),
     };
+    this.aiming = false;
+    this.lmbWasDown = false;
   }
 
   /** Białe tekstury bazowe (tint nadaje kolor per klasa/typ wroga). */
@@ -149,27 +146,31 @@ export class GameScene extends Phaser.Scene {
   }
 
   private sampleInput(): SimInput {
-    const k = this.keys;
     const pointer = this.input.activePointer;
+    const cursor = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+
     const rmb = pointer.rightButtonDown();
-    let targetX = 0;
-    let targetY = 0;
-    if (rmb) {
-      // Ekran → świat: cel ruchu w współrzędnych symulacji.
-      const wp = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
-      targetX = wp.x;
-      targetY = wp.y;
-      if (!this.rmbWasDown) this.flashMoveMarker(wp.x, wp.y);
-    }
+    if (rmb && !this.rmbWasDown) this.flashMoveMarker(cursor.x, cursor.y);
     this.rmbWasDown = rmb;
+
+    // Celowanie skilla: spacja włącza/wyłącza (tylko gdy skill gotowy),
+    // LMB (świeże wciśnięcie) zatwierdza cios w kierunku kursora.
+    if (Phaser.Input.Keyboard.JustDown(this.keys.space) && this.world.skillCooldown <= 0) {
+      this.aiming = !this.aiming;
+    }
+    const lmb = pointer.leftButtonDown();
+    const confirmStrike = this.aiming && lmb && !this.lmbWasDown;
+    this.lmbWasDown = lmb;
+    if (confirmStrike) this.aiming = false;
+
     return {
-      moveX: (k.right.isDown || k.d.isDown ? 1 : 0) - (k.left.isDown || k.a.isDown ? 1 : 0),
-      moveY: (k.down.isDown || k.s.isDown ? 1 : 0) - (k.up.isDown || k.w.isDown ? 1 : 0),
-      targetX,
-      targetY,
+      targetX: cursor.x,
+      targetY: cursor.y,
       hasTarget: rmb,
-      attack: k.space.isDown,
-      debugSpawn: k.m.isDown,
+      attack: confirmStrike,
+      aimX: cursor.x,
+      aimY: cursor.y,
+      debugSpawn: this.keys.m.isDown,
     };
   }
 
@@ -254,20 +255,40 @@ export class GameScene extends Phaser.Scene {
       this.cameras.main.shake(90, 0.004);
     }
 
+    // Podgląd celowania: półprzezroczysty stożek od gracza w stronę kursora.
+    if (this.aiming) {
+      const pointer = this.input.activePointer;
+      const cursor = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+      const angle = Math.atan2(cursor.y - this.playerSprite.y, cursor.x - this.playerSprite.x);
+      const half = Math.acos(C.SKILL_CONE_COS);
+      const range = this.cls.meleeRange * C.SKILL_RANGE_MULT;
+      this.aimPreview
+        .clear()
+        .fillStyle(this.cls.color, 0.15)
+        .slice(this.playerSprite.x, this.playerSprite.y, range, angle - half, angle + half)
+        .fillPath()
+        .lineStyle(2, this.cls.color, 0.6)
+        .slice(this.playerSprite.x, this.playerSprite.y, range, angle - half, angle + half)
+        .strokePath();
+    } else if (this.aimPreview) {
+      this.aimPreview.clear();
+    }
+
     if (w.playerHp < this.lastSeenHp) this.cameras.main.flash(120, 255, 40, 80);
     this.lastSeenHp = w.playerHp;
   }
 
   private updateHud(): void {
     const w = this.world;
-    const skill =
-      w.skillCooldown <= 0
-        ? 'SLASH ready'
+    const skill = this.aiming
+      ? 'AIMING — LMB to strike'
+      : w.skillCooldown <= 0
+        ? 'SLASH ready [SPACE]'
         : `SLASH ${(w.skillCooldown * C.TICK_DT).toFixed(1)}s`;
     this.hud.setText(
       `${this.cls.name}  |  FPS ${Math.round(this.game.loop.actualFps)}  |  mobs ${w.aliveMobs}  |  ` +
         `HP ${w.playerHp}/${this.cls.maxHp}  |  kills ${w.kills}  |  ${skill}\n` +
-        `RMB: move (hold = follow cursor)   SPACE: power slash   WASD: alt move   hold M: dev spawn`,
+        `RMB: move (hold = follow)   SPACE: aim slash   LMB: strike   hold M: dev spawn`,
     );
   }
 

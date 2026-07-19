@@ -40,5 +40,15 @@ export const SKILL_CONE_COS = 0.5;
 export const SKILL_KNOCKBACK = 70;
 export const SKILL_COOLDOWN_TICKS = Math.round(3 * TICK_RATE);
 
+/**
+ * Losowe przeszkody na mapie (deterministyczne z seeda — ta sama mapa dla
+ * wszystkich graczy w co-opie). Blokują gracza, mobki i pociski (osłony!).
+ */
+export const OBSTACLE_COUNT = 60;
+export const OBSTACLE_RADIUS_MIN = 40;
+export const OBSTACLE_RADIUS_MAX = 90;
+/** Strefa wolna od przeszkód wokół punktu startu gracza. */
+export const OBSTACLE_SPAWN_CLEARANCE = 350;
+
 /** Rozmiar komórki spatial hasha — ~2x promień moba wystarcza. */
 export const HASH_CELL_SIZE = 64;

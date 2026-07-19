@@ -108,7 +108,7 @@ Gracz wybiera ssaka; na razie klasa = kolor + statystyki, docelowo drzewka umiej
 
 ## 6. Platformy i sterowanie
 
-- **Sterowanie (zdecydowane 2026-07-19): point-and-click jak Dota 2 / LoL** — klik RMB = idź do punktu, trzymanie RMB = podążaj za kursorem; WASD zostaje jako alternatywa. Bonus: ten model mapuje się 1:1 na dotyk (tap / przytrzymanie palca) — tani port mobilny.
+- **Sterowanie (zdecydowane 2026-07-19): point-and-click jak Dota 2 / LoL** — klik RMB = idź do punktu, trzymanie RMB = podążaj za kursorem. **WASD usunięte** (decyzja późniejsza tego samego dnia — mysz jest jedynym sterowaniem ruchu). Skille: spacja = tryb celowania (podgląd stożka za kursorem), LMB = zatwierdzenie ciosu. Bonus: model mapuje się 1:1 na dotyk — tani port mobilny.
 - **Faza 1:** przeglądarka desktop (mysz + klawiatura).
 - **Faza 2:** przeglądarki mobilne (sterowanie dotykowe — wirtualny joystick; gatunek świetnie się do tego nadaje).
 - **Faza 3 (opcja):** wrapper na sklepy (Capacitor) i/lub Steam (Electron/Tauri) — ten sam kod.
@@ -172,7 +172,9 @@ Poza MVP (świadomie później): mobile/dotyk, więcej klas i krain, boss, dźwi
 | 2026-07-19 | **10 klas-ssaków od startu; klasa = kolor + statystyki** | Bez grafik na razie; drzewka umiejętności i sci-fi bronie w przyszłości; itemy wspólne dla wszystkich klas |
 | 2026-07-19 | **Co-op 1-8 graczy** | Skala "dla ziomeczków" potwierdzona; 8 graczy wykonalne w lockstepie (sieć przesyła tylko inputy) |
 | 2026-07-19 | **Model walki: hybryda (D10)** — auto-atak + aktywne skille na klawisze/kombinacje, dużo pasywów | Auto niesie hordę i port mobile; aktywne skille dają slasher-feel; kombinacje klawiszy = wyróżnik do zaprojektowania |
-| 2026-07-19 | **Sterowanie: RMB point-and-click (Dota/LoL)** — klik = idź, trzymanie = za kursorem; WASD jako alternatywa | Pomysł użytkownika; świetnie mapuje się na dotyk (mobile); cel ruchu wchodzi do SimInput, więc lockstep bez zmian |
+| 2026-07-19 | **Sterowanie: RMB point-and-click (Dota/LoL)** — klik = idź, trzymanie = za kursorem | Pomysł użytkownika; świetnie mapuje się na dotyk (mobile); cel ruchu wchodzi do SimInput, więc lockstep bez zmian |
+| 2026-07-19 | **WASD usunięte; skill z celowaniem** — spacja celuje (podgląd stożka), LMB zatwierdza cios | Pomysł użytkownika; czyste sterowanie myszą jak w MOBA; kierunek ciosu w SimInput (aimX/aimY) |
+| 2026-07-19 | **Losowe przeszkody na mapie** (60 okręgów z seeda) — blokują gracza, mobki i pociski | Pomysł użytkownika; deterministyczne z seeda = ta sama mapa w co-opie; pociski rozbijają się o teren → przeszkody działają jak osłony |
 
 ---
 

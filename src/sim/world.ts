@@ -26,24 +26,32 @@ import * as C from './constants';
 /** Wejście gracza na jeden tick. Jedyna droga danych do symulacji. */
 export interface SimInput {
   /**
-   * Kierunek ruchu z klawiatury (WASD — alternatywa), każda oś w {-1, 0, 1}.
-   * Niezerowy ruch klawiaturą kasuje cel myszy.
-   */
-  moveX: number;
-  moveY: number;
-  /**
-   * Sterowanie główne (Dota/LoL-style, decyzja 2026-07-19): cel ruchu we
-   * współrzędnych ŚWIATA. hasTarget=true w ticku, w którym RMB jest wciśnięty
-   * (klik = jeden tick z celem, trzymanie = cel aktualizowany co tick).
-   * Cel jest trwały w stanie symulacji — postać idzie do niego sama.
+   * Sterowanie ruchem — wyłącznie mysz (Dota/LoL-style; WASD usunięte
+   * decyzją 2026-07-19): cel ruchu we współrzędnych ŚWIATA. hasTarget=true
+   * w ticku, w którym RMB jest wciśnięty (klik = jeden tick z celem,
+   * trzymanie = cel aktualizowany co tick). Cel jest trwały w stanie
+   * symulacji — postać idzie do niego sama.
    */
   targetX: number;
   targetY: number;
   hasTarget: boolean;
-  /** Aktywny skill (Power Slash) — model hybrydowy, decyzja D10 2026-07-19. */
+  /**
+   * Power Slash (hybryda, D10) z celowaniem (2026-07-19): attack=true w ticku
+   * zatwierdzenia ciosu (LMB po spacji); aimX/aimY = punkt świata, w którego
+   * KIERUNKU idzie cios. Tryb celowania to stan UI (render), nie symulacji.
+   */
   attack: boolean;
+  aimX: number;
+  aimY: number;
   /** Dev-helper (klawisz M): natychmiastowy spawn 50 mobków do testu wydajności. */
   debugSpawn: boolean;
+}
+
+/** Okrągła przeszkoda terenu — blokuje gracza, mobki i pociski. */
+export interface Obstacle {
+  x: number;
+  y: number;
+  r: number;
 }
 
 export interface Mob {
@@ -108,6 +116,8 @@ export class World {
   /** Poole o stałym rozmiarze — zero alokacji w trakcie gry. */
   readonly mobs: Mob[] = [];
   readonly projectiles: Projectile[] = [];
+  /** Przeszkody wygenerowane z seeda w konstruktorze — stałe przez cały run. */
+  readonly obstacles: Obstacle[] = [];
   aliveMobs = 0;
   /** Licznik zabitych mobków w całym runie. */
   kills = 0;
@@ -130,6 +140,57 @@ export class World {
         alive: false, x: 0, y: 0, prevX: 0, prevY: 0, vx: 0, vy: 0, ttl: 0, damage: 0,
       });
     }
+    this.generateObstacles();
+  }
+
+  /** Losowe przeszkody z seeda — deterministyczne, z czystą strefą startową. */
+  private generateObstacles(): void {
+    let attempts = 0;
+    while (this.obstacles.length < C.OBSTACLE_COUNT && attempts < C.OBSTACLE_COUNT * 10) {
+      attempts++;
+      const r = this.rng.range(C.OBSTACLE_RADIUS_MIN, C.OBSTACLE_RADIUS_MAX);
+      const x = this.rng.range(r, C.WORLD_W - r);
+      const y = this.rng.range(r, C.WORLD_H - r);
+      const dx = x - this.playerX;
+      const dy = y - this.playerY;
+      const clearance = C.OBSTACLE_SPAWN_CLEARANCE + r;
+      if (dx * dx + dy * dy < clearance * clearance) continue;
+      this.obstacles.push({ x, y, r });
+    }
+  }
+
+  private projectileHitsObstacle(x: number, y: number): boolean {
+    for (let i = 0; i < this.obstacles.length; i++) {
+      const o = this.obstacles[i];
+      const dx = x - o.x;
+      const dy = y - o.y;
+      const minD = o.r + C.PROJECTILE_RADIUS;
+      if (dx * dx + dy * dy < minD * minD) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Wypycha okrąg (x, y, radius) poza wszystkie przeszkody.
+   * Zwraca skorygowaną pozycję; przy idealnym środku przeszkody wypycha w prawo.
+   */
+  private pushOutOfObstacles(x: number, y: number, radius: number): { x: number; y: number } {
+    for (let i = 0; i < this.obstacles.length; i++) {
+      const o = this.obstacles[i];
+      const dx = x - o.x;
+      const dy = y - o.y;
+      const minD = o.r + radius;
+      const d2 = dx * dx + dy * dy;
+      if (d2 >= minD * minD) continue;
+      const d = Math.sqrt(d2);
+      if (d < 0.001) {
+        x = o.x + minD;
+      } else {
+        x = o.x + (dx / d) * minD;
+        y = o.y + (dy / d) * minD;
+      }
+    }
+    return { x, y };
   }
 
   get isPlayerDead(): boolean {
@@ -147,7 +208,7 @@ export class World {
     this.moveMobsAndShoot();
     this.stepProjectiles();
     this.applyMelee();
-    this.applySkill(input.attack);
+    this.applySkill(input);
     this.applyContactDamage();
   }
 
@@ -175,41 +236,42 @@ export class World {
       this.moveTargetY = Math.min(Math.max(input.targetY, C.PLAYER_RADIUS), C.WORLD_H - C.PLAYER_RADIUS);
       this.hasMoveTarget = true;
     }
+    if (!this.hasMoveTarget) return;
 
-    let dx = input.moveX;
-    let dy = input.moveY;
-    if (dx !== 0 || dy !== 0) {
-      // WASD (alternatywa) nadpisuje i kasuje cel myszy.
+    let dx = this.moveTargetX - this.playerX;
+    let dy = this.moveTargetY - this.playerY;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    const stepLen = this.cls.speed * C.TICK_DT;
+
+    if (dist <= stepLen) {
+      // Dochodzimy do celu w tym ticku — snap i stop (bez drgania wokół punktu).
+      this.playerX = this.moveTargetX;
+      this.playerY = this.moveTargetY;
       this.hasMoveTarget = false;
-    } else if (this.hasMoveTarget) {
-      dx = this.moveTargetX - this.playerX;
-      dy = this.moveTargetY - this.playerY;
-      const dist = Math.sqrt(dx * dx + dy * dy);
-      const stepLen = this.cls.speed * C.TICK_DT;
-      if (dist <= stepLen) {
-        // Dochodzimy do celu w tym ticku — snap i stop (bez drgania wokół punktu).
-        this.playerX = this.moveTargetX;
-        this.playerY = this.moveTargetY;
-        this.hasMoveTarget = false;
-        if (dist > 0.001) {
-          this.facingX = dx / dist;
-          this.facingY = dy / dist;
-        }
-        return;
+      if (dist > 0.001) {
+        this.facingX = dx / dist;
+        this.facingY = dy / dist;
       }
     } else {
-      return;
+      dx /= dist;
+      dy /= dist;
+      this.facingX = dx;
+      this.facingY = dy;
+      this.playerX += dx * stepLen;
+      this.playerY += dy * stepLen;
     }
 
-    const len = Math.sqrt(dx * dx + dy * dy);
-    dx /= len;
-    dy /= len;
-    this.facingX = dx;
-    this.facingY = dy;
-    this.playerX += dx * this.cls.speed * C.TICK_DT;
-    this.playerY += dy * this.cls.speed * C.TICK_DT;
-    this.playerX = Math.min(Math.max(this.playerX, C.PLAYER_RADIUS), C.WORLD_W - C.PLAYER_RADIUS);
-    this.playerY = Math.min(Math.max(this.playerY, C.PLAYER_RADIUS), C.WORLD_H - C.PLAYER_RADIUS);
+    // Kolizja z przeszkodami + granice świata.
+    const pushed = this.pushOutOfObstacles(this.playerX, this.playerY, C.PLAYER_RADIUS);
+    this.playerX = Math.min(Math.max(pushed.x, C.PLAYER_RADIUS), C.WORLD_W - C.PLAYER_RADIUS);
+    this.playerY = Math.min(Math.max(pushed.y, C.PLAYER_RADIUS), C.WORLD_H - C.PLAYER_RADIUS);
+
+    // Cel nieosiągalny (gracz zablokowany o przeszkodę) — kasujemy, żeby nie drgał w miejscu.
+    const movedX = this.playerX - this.playerPrevX;
+    const movedY = this.playerY - this.playerPrevY;
+    if (this.hasMoveTarget && movedX * movedX + movedY * movedY < 0.01) {
+      this.hasMoveTarget = false;
+    }
   }
 
   /** Losuje typ najeźdźcy spośród odblokowanych w danym momencie runu (wagi z ENEMIES). */
@@ -314,6 +376,11 @@ export class World {
 
       m.x += (dx * m.speed * advance + pushX * 60) * C.TICK_DT;
       m.y += (dy * m.speed * advance + pushY * 60) * C.TICK_DT;
+
+      // Przeszkody blokują też najeźdźców (wypchnięcie = ślizganie po okręgu).
+      const pushed = this.pushOutOfObstacles(m.x, m.y, C.MOB_RADIUS);
+      m.x = pushed.x;
+      m.y = pushed.y;
     }
   }
 
@@ -346,6 +413,11 @@ export class World {
       p.y += p.vy * C.TICK_DT;
       p.ttl--;
       if (p.ttl <= 0) {
+        p.alive = false;
+        continue;
+      }
+      // Pociski rozbijają się o przeszkody — teren działa jak osłona.
+      if (this.projectileHitsObstacle(p.x, p.y)) {
         p.alive = false;
         continue;
       }
@@ -384,17 +456,31 @@ export class World {
   }
 
   /**
-   * Power Slash — aktywny skill hybrydy (D10): stożek 120° w kierunku patrzenia,
-   * potrojone obrażenia, knockback, cooldown. Docelowo: skille per klasa
-   * odpalane klawiszami i kombinacjami klawiszy (TODOS.md).
+   * Power Slash — aktywny skill hybrydy (D10) z celowaniem (2026-07-19):
+   * spacja otwiera celowanie (UI), LMB zatwierdza — cios idzie stożkiem 120°
+   * w kierunku punktu aim. Docelowo: skille per klasa odpalane klawiszami
+   * i kombinacjami klawiszy (TODOS.md).
    */
-  private applySkill(attackPressed: boolean): void {
+  private applySkill(input: SimInput): void {
     if (this.skillCooldown > 0) this.skillCooldown--;
-    if (!attackPressed || this.skillCooldown > 0) return;
+    if (!input.attack || this.skillCooldown > 0) return;
+
+    // Kierunek ciosu: od gracza do punktu celowania; fallback = kierunek patrzenia.
+    let dirX = input.aimX - this.playerX;
+    let dirY = input.aimY - this.playerY;
+    const dirLen = Math.sqrt(dirX * dirX + dirY * dirY);
+    if (dirLen < 0.001) {
+      dirX = this.facingX;
+      dirY = this.facingY;
+    } else {
+      dirX /= dirLen;
+      dirY /= dirLen;
+    }
+
     this.skillCooldown = C.SKILL_COOLDOWN_TICKS;
     this.lastSkillTick = this.tick;
-    this.lastSkillDirX = this.facingX;
-    this.lastSkillDirY = this.facingY;
+    this.lastSkillDirX = dirX;
+    this.lastSkillDirY = dirY;
 
     const range = this.cls.meleeRange * C.SKILL_RANGE_MULT;
     const r2 = range * range;
@@ -407,8 +493,8 @@ export class World {
       const d2 = dx * dx + dy * dy;
       if (d2 > r2 || d2 === 0) return;
       const d = Math.sqrt(d2);
-      // Test stożka: kąt między kierunkiem patrzenia a wektorem do moba.
-      if ((dx / d) * this.facingX + (dy / d) * this.facingY < C.SKILL_CONE_COS) return;
+      // Test stożka: kąt między kierunkiem celowania a wektorem do moba.
+      if ((dx / d) * dirX + (dy / d) * dirY < C.SKILL_CONE_COS) return;
       m.hp -= damage;
       m.lastHitTick = this.tick;
       if (m.hp <= 0) {
@@ -417,9 +503,15 @@ export class World {
         this.kills++;
         return;
       }
-      // Knockback: natychmiastowe odepchnięcie wzdłuż wektora od gracza.
-      m.x = Math.min(Math.max(m.x + (dx / d) * C.SKILL_KNOCKBACK, C.MOB_RADIUS), C.WORLD_W - C.MOB_RADIUS);
-      m.y = Math.min(Math.max(m.y + (dy / d) * C.SKILL_KNOCKBACK, C.MOB_RADIUS), C.WORLD_H - C.MOB_RADIUS);
+      // Knockback: natychmiastowe odepchnięcie wzdłuż wektora od gracza
+      // (z respektowaniem przeszkód — mob nie może wylądować w ścianie).
+      const kb = this.pushOutOfObstacles(
+        m.x + (dx / d) * C.SKILL_KNOCKBACK,
+        m.y + (dy / d) * C.SKILL_KNOCKBACK,
+        C.MOB_RADIUS,
+      );
+      m.x = Math.min(Math.max(kb.x, C.MOB_RADIUS), C.WORLD_W - C.MOB_RADIUS);
+      m.y = Math.min(Math.max(kb.y, C.MOB_RADIUS), C.WORLD_H - C.MOB_RADIUS);
     });
   }
 
