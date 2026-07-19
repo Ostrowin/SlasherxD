@@ -20,9 +20,9 @@ Cel: zamknąć pytania, które blokują sensowny start kodu.
 
 ---
 
-## Faza 1 — Szkielet techniczny *(można zacząć od razu, bez motywu)*
+## Faza 1 — Szkielet techniczny ✅ *(ukończona 2026-07-19)*
 
-Cel: pusty, ale działający projekt z pętlą gry. Szacunek: solo ~1 tydzień / CC ~1 wieczór.
+Cel: pusty, ale działający projekt z pętlą gry. Szacunek: solo ~1 tydzień / CC ~1 wieczór. **Faktycznie: 1 sesja.**
 
 - [x] Init: Vite + Phaser 3 + TypeScript, ESLint/Prettier, git init *(2026-07-19; ESLint blokuje `Math.random()` w kodzie — strażnik determinizmu)*
 - [x] W konfiguracji Vite od razu `base: './'` (ścieżki względne) i zero backendu — to gwarantuje, że późniejsza publikacja na itch.io = zip folderu `dist/` (~15 min, bez zmian w kodzie)
@@ -31,7 +31,7 @@ Cel: pusty, ale działający projekt z pętlą gry. Szacunek: solo ~1 tydzień /
 - [x] Spawner mobków-placeholderów idących do gracza + object pooling (pool 400, zero alokacji w trakcie gry)
 - [x] Kolizje (spatial hash we własnej symulacji) + obrażenia kontaktowe i placeholder auto-ataku (model walki wciąż otwarty — gdd.md 5.1)
 - [x] Licznik FPS na ekranie (HUD) + dev-spawner pod klawiszem M
-- [ ] **Bramka wydajności: 200 mobków @ 60 FPS** — symulacja zmierzona: **0.22 ms/tick przy 400 mobkach** (budżet klatki 16.6 ms — ogromny zapas); pozostała wizualna weryfikacja FPS w otwartej przeglądarce
+- [x] **Bramka wydajności: 200 mobków @ 60 FPS** — symulacja: 0.22 ms/tick przy 400 mobkach; wizualnie potwierdzone przez użytkownika (okejka 2026-07-19)
 - [x] Gra odpalana **prywatnie, bez pośredników**: `npm run dev` na localhost; test na telefonie przez Wi-Fi (`npm run dev:lan`). Publiczny deploy dopiero w Fazie 6, decyzją użytkownika.
 
 **Wyjście z fazy:** odpalasz localhost, biegasz, mobki Cię gonią, 60 FPS. Brzydkie — i dobrze.

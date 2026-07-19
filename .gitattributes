@@ -1,0 +1,13 @@
+# Spójne końce linii niezależnie od systemu (Windows/macOS/Linux).
+* text=auto eol=lf
+
+# Pliki binarne — nigdy nie normalizuj.
+*.png binary
+*.jpg binary
+*.webp binary
+*.ico binary
+*.mp3 binary
+*.ogg binary
+*.wav binary
+*.woff binary
+*.woff2 binary
