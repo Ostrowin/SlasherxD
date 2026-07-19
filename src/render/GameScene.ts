@@ -1,5 +1,7 @@
 import Phaser from 'phaser';
 import { World, type SimInput } from '../sim/world';
+import { CLASSES, type ClassDef } from '../sim/classes';
+import { ENEMIES } from '../sim/enemies';
 import * as C from '../sim/constants';
 
 /**
@@ -7,19 +9,22 @@ import * as C from '../sim/constants';
  * Nie zawiera żadnej logiki gry — patrz diagram w src/sim/world.ts.
  * Render działa w FPS przeglądarki, symulacja w stałych tickach;
  * pozycje między tickami są interpolowane (alpha = accumulator / TICK_DT).
+ * Grafika: białe tekstury + tint kolorem klasy/wroga (bez sprite'ów — decyzja 2026-07-19).
  */
 export class GameScene extends Phaser.Scene {
   private world!: World;
+  private cls!: ClassDef;
   private accumulator = 0;
 
   private playerSprite!: Phaser.GameObjects.Image;
   private mobSprites: Phaser.GameObjects.Image[] = [];
+  private projectileSprites: Phaser.GameObjects.Image[] = [];
   private meleeRing!: Phaser.GameObjects.Arc;
   private lastSeenMeleeTick = -1;
 
   private hud!: Phaser.GameObjects.Text;
   private deathText!: Phaser.GameObjects.Text;
-  private lastSeenHp = C.PLAYER_MAX_HP;
+  private lastSeenHp = 0;
 
   private keys!: {
     up: Phaser.Input.Keyboard.Key;
@@ -32,31 +37,42 @@ export class GameScene extends Phaser.Scene {
     d: Phaser.Input.Keyboard.Key;
     m: Phaser.Input.Keyboard.Key;
     r: Phaser.Input.Keyboard.Key;
+    c: Phaser.Input.Keyboard.Key;
   };
 
   constructor() {
     super('game');
   }
 
+  init(data: { classIndex?: number }): void {
+    this.cls = CLASSES[data.classIndex ?? 0];
+  }
+
   create(): void {
-    // Seed spoza symulacji — w co-opie hostem seeda będzie jeden z graczy.
-    this.world = new World(Date.now() >>> 0);
+    // Seed spoza symulacji — w co-opie (1-8 graczy) seed rozda host.
+    this.world = new World(Date.now() >>> 0, this.cls);
     this.accumulator = 0;
     this.lastSeenMeleeTick = -1;
-    this.lastSeenHp = C.PLAYER_MAX_HP;
+    this.lastSeenHp = this.cls.maxHp;
     this.mobSprites = [];
+    this.projectileSprites = [];
 
     this.createTextures();
     this.add.tileSprite(0, 0, C.WORLD_W, C.WORLD_H, 'grid').setOrigin(0, 0).setAlpha(0.35);
 
     this.meleeRing = this.add
-      .circle(0, 0, C.MELEE_RANGE, 0x39ff14, 0)
-      .setStrokeStyle(3, 0x39ff14, 1)
+      .circle(0, 0, this.cls.meleeRange, 0x39ff14, 0)
+      .setStrokeStyle(3, this.cls.color, 1)
       .setVisible(false);
 
-    this.playerSprite = this.add.image(this.world.playerX, this.world.playerY, 'player');
+    this.playerSprite = this.add
+      .image(this.world.playerX, this.world.playerY, 'box-player')
+      .setTint(this.cls.color);
     for (let i = 0; i < C.MOB_CAP; i++) {
-      this.mobSprites.push(this.add.image(0, 0, 'mob').setVisible(false));
+      this.mobSprites.push(this.add.image(0, 0, 'box-mob').setVisible(false));
+    }
+    for (let i = 0; i < C.PROJECTILE_CAP; i++) {
+      this.projectileSprites.push(this.add.image(0, 0, 'projectile').setVisible(false));
     }
 
     const cam = this.cameras.main;
@@ -69,7 +85,7 @@ export class GameScene extends Phaser.Scene {
       .setDepth(10);
 
     this.deathText = this.add
-      .text(0, 0, 'YOU DIED\npress R to restart', {
+      .text(0, 0, 'YOU DIED\nR: retry   C: change class', {
         fontFamily: 'monospace',
         fontSize: '42px',
         color: '#ff2965',
@@ -92,22 +108,25 @@ export class GameScene extends Phaser.Scene {
       d: kb.addKey(Phaser.Input.Keyboard.KeyCodes.D),
       m: kb.addKey(Phaser.Input.Keyboard.KeyCodes.M),
       r: kb.addKey(Phaser.Input.Keyboard.KeyCodes.R),
+      c: kb.addKey(Phaser.Input.Keyboard.KeyCodes.C),
     };
   }
 
-  /** Placeholder-tekstury generowane w locie — zero plików graficznych w Fazie 1. */
+  /** Białe tekstury bazowe (tint nadaje kolor per klasa/typ wroga). */
   private createTextures(): void {
-    if (this.textures.exists('player')) return;
+    if (this.textures.exists('box-player')) return;
     const g = this.make.graphics({ x: 0, y: 0 }, false);
 
-    g.fillStyle(0x39ff14).fillRect(0, 0, C.PLAYER_RADIUS * 2, C.PLAYER_RADIUS * 2);
-    g.lineStyle(2, 0xffffff).strokeRect(1, 1, C.PLAYER_RADIUS * 2 - 2, C.PLAYER_RADIUS * 2 - 2);
-    g.generateTexture('player', C.PLAYER_RADIUS * 2, C.PLAYER_RADIUS * 2);
+    g.fillStyle(0xffffff).fillRect(0, 0, C.PLAYER_RADIUS * 2, C.PLAYER_RADIUS * 2);
+    g.generateTexture('box-player', C.PLAYER_RADIUS * 2, C.PLAYER_RADIUS * 2);
     g.clear();
 
-    g.fillStyle(0xff00ff).fillRect(0, 0, C.MOB_RADIUS * 2, C.MOB_RADIUS * 2);
-    g.lineStyle(2, 0x8800aa).strokeRect(1, 1, C.MOB_RADIUS * 2 - 2, C.MOB_RADIUS * 2 - 2);
-    g.generateTexture('mob', C.MOB_RADIUS * 2, C.MOB_RADIUS * 2);
+    g.fillStyle(0xffffff).fillRect(0, 0, C.MOB_RADIUS * 2, C.MOB_RADIUS * 2);
+    g.generateTexture('box-mob', C.MOB_RADIUS * 2, C.MOB_RADIUS * 2);
+    g.clear();
+
+    g.fillStyle(0xffffff).fillCircle(C.PROJECTILE_RADIUS, C.PROJECTILE_RADIUS, C.PROJECTILE_RADIUS);
+    g.generateTexture('projectile', C.PROJECTILE_RADIUS * 2, C.PROJECTILE_RADIUS * 2);
     g.clear();
 
     g.lineStyle(1, 0x223355).strokeRect(0, 0, 64, 64);
@@ -127,7 +146,8 @@ export class GameScene extends Phaser.Scene {
   update(_time: number, deltaMs: number): void {
     if (this.world.isPlayerDead) {
       this.showDeath();
-      if (this.keys.r.isDown) this.scene.restart();
+      if (this.keys.r.isDown) this.scene.restart({ classIndex: CLASSES.indexOf(this.cls) });
+      if (this.keys.c.isDown) this.scene.start('class-select');
       return;
     }
 
@@ -158,8 +178,21 @@ export class GameScene extends Phaser.Scene {
         if (s.visible) s.setVisible(false);
         continue;
       }
-      if (!s.visible) s.setVisible(true);
+      if (!s.visible) {
+        s.setVisible(true).setTint(ENEMIES[m.defIndex].color);
+      }
       s.setPosition(Phaser.Math.Linear(m.prevX, m.x, alpha), Phaser.Math.Linear(m.prevY, m.y, alpha));
+    }
+
+    for (let i = 0; i < w.projectiles.length; i++) {
+      const p = w.projectiles[i];
+      const s = this.projectileSprites[i];
+      if (!p.alive) {
+        if (s.visible) s.setVisible(false);
+        continue;
+      }
+      if (!s.visible) s.setVisible(true).setTint(0x00ccff);
+      s.setPosition(Phaser.Math.Linear(p.prevX, p.x, alpha), Phaser.Math.Linear(p.prevY, p.y, alpha));
     }
 
     // Błysk pierścienia przy ataku (czysta kosmetyka — czyta stan, nic nie zmienia).
@@ -176,9 +209,9 @@ export class GameScene extends Phaser.Scene {
   private updateHud(): void {
     const w = this.world;
     this.hud.setText(
-      `FPS ${Math.round(this.game.loop.actualFps)}  |  mobs ${w.aliveMobs}  |  ` +
-        `HP ${w.playerHp}/${C.PLAYER_MAX_HP}  |  kills ${w.kills}  |  tick ${w.tick}\n` +
-        `WASD/strzalki: ruch   M (przytrzymaj): +mobki do testu FPS`,
+      `${this.cls.name}  |  FPS ${Math.round(this.game.loop.actualFps)}  |  mobs ${w.aliveMobs}  |  ` +
+        `HP ${w.playerHp}/${this.cls.maxHp}  |  kills ${w.kills}  |  tick ${w.tick}\n` +
+        `WASD/arrows: move   hold M: spawn mobs (dev)`,
     );
   }
 

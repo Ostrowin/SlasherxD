@@ -38,11 +38,12 @@ Cel: pusty, ale działający projekt z pętlą gry. Szacunek: solo ~1 tydzień /
 
 ---
 
-## Faza 2 — Grywalny rdzeń (MVP z gdd.md sekcja 10)
+## Faza 2 — Grywalny rdzeń (MVP z gdd.md sekcja 10) *(w toku od 2026-07-19)*
 
-Cel: pełny run od startu do śmierci, z motywem. Szacunek: solo ~3-4 tyg / CC ~3-5 wieczorów.
+Cel: pełny run od startu do śmierci, z motywem (ssaki vs kosmiczni najeźdźcy, neon sci-fi). Szacunek: solo ~3-4 tyg / CC ~3-5 wieczorów.
 
-- [ ] Motyw nałożony na szkielet (bohater, 3-4 typy mobków, 1 kraina)
+- [x] Motyw nałożony na szkielet: 10 klas-ssaków (kolor + statystyki, ekran wyboru) i 4 typy najeźdźców (Alien / Demon / Robot / Alien Mage z pociskami) — *2026-07-19; test: wszystkie typy w polu, determinizm PASS, 0.083 ms/tick*
+- [ ] Kraina z klimatem (na razie neutralna siatka) + notka balansowa: magowie kumulują się w hordzie (trzymają dystans poza zasięgiem melee) — do balansu razem z modelem walki
 - [ ] Walka wg wybranego modelu + "game feel": screen shake, knockback, hit-flash, dźwięki cięcia
 - [ ] ~10 fal rosnącej trudności, przerwy między falami
 - [ ] 5-8 itemów modyfikujących statystyki + wybór ulepszenia między falami
@@ -80,7 +81,7 @@ Cel: z prototypu robi się gra. Zakres elastyczny — dokładamy, póki bawi.
 
 ## Faza 4.5 — Co-op ze znajomymi *(odblokowana przez deterministyczny rdzeń z Fazy 1)*
 
-Cel: 2-4 graczy w jednym runie. Szacunek: solo ~2-3 tyg / CC ~1 tydzień — pod warunkiem, że dyscyplina determinizmu z Fazy 1 była trzymana.
+Cel: 1-8 graczy w jednym runie (decyzja 2026-07-19). Szacunek: solo ~2-3 tyg / CC ~1 tydzień — pod warunkiem, że dyscyplina determinizmu z Fazy 1 była trzymana.
 
 - [ ] Netcode lockstep: synchronizujemy tylko wejścia graczy, każdy klient liczy identyczną symulację
 - [ ] Transport: WebRTC (bezpośrednio między przeglądarkami) — na LAN działa bez internetu, zgodnie z trybem prywatnym

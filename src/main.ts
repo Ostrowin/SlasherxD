@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { ClassSelectScene } from './render/ClassSelectScene';
 import { GameScene } from './render/GameScene';
 
 const game = new Phaser.Game({
@@ -10,7 +11,7 @@ const game = new Phaser.Game({
     width: window.innerWidth,
     height: window.innerHeight,
   },
-  scene: [GameScene],
+  scene: [ClassSelectScene, GameScene],
 });
 
 // Uchwyt dev-diagnostyczny (tylko tryb dev) — pozwala zajrzeć w stan gry z konsoli.

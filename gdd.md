@@ -8,7 +8,7 @@
 
 ## 1. Pitch (jedno zdanie)
 
-Przeglądarkowy arena-slasher w stylu Brotato / Vampire Survivors, ale z walką **wręcz** zamiast auto-strzelania, z klasami postaci, itemami, krainami rosnącymi z poziomem i meta-progresją roguelite. Grasz od razu z linku, bez instalacji; docelowo także na mobile.
+Przeglądarkowy roguelike-slasher dla **1-8 znajomych**: gracze wcielają się w **ssaki-wojowników** (10 klas), które bronią Ziemi przed **najeźdźcami z kosmosu** (alieny, alieni magowie, demony, roboty) w neonowym sci-fi klimacie — z itemami, meta-progresją i brutalną frajdą z siekania hord. Grasz od razu z linku, bez instalacji; docelowo także na mobile.
 
 ## 2. Filary designu
 
@@ -58,17 +58,37 @@ Steam w maju 2026 oficjalnie uznał ten gatunek za osobną kategorię ("Bullet H
 - Walka wręcz z hordami mobków — to rdzeń gry.
 - **Do rozstrzygnięcia:** atak aktywny (klik/przycisk), auto-atak jak w VS, czy hybryda (auto-atak + aktywne umiejętności)? Hybryda najlepiej znosi przejście na mobile (dotyk).
 
-### 5.2 Mobki i fale
-- Fale rosnącej trudności; różne typy mobków (szybkie/tanki/dystansowe/elitarne?).
+### 5.2 Mobki i fale — najeźdźcy z kosmosu *(zdecydowane 2026-07-19)*
+Cztery typy najeźdźców na start (grafika: na razie kolory, sci-fi sprite'y później):
+| Typ | Rola | Charakter |
+|---|---|---|
+| **Alien** | podstawowy | średnie tempo, idzie na gracza |
+| **Demon** | szybki | mało HP, dużo ruchu — presja |
+| **Robot** | tank | wolny, gruby, boli przy kontakcie |
+| **Alien Mage** | dystansowy | trzyma odległość, strzela pociskami |
+
+- Miks fal zmienia się z czasem gry (najpierw alieny, potem dochodzą kolejne typy).
 - Cel wydajnościowy: setki mobków na ekranie przy 60 FPS (osiągalne w WebGL — patrz sekcja 7).
 
 ### 5.3 Itemki
 - Przedmioty modyfikujące statystyki i styl gry.
 - **Do rozstrzygnięcia:** rzadkości? sloty ekwipunku? synergie/zestawy? sklep między falami jak w Brotato?
 
-### 5.4 Klasy postaci
-- Różne klasy = różne buildy startowe i ograniczenia (jak postacie w Brotato).
-- **Do rozstrzygnięcia:** ile na start (propozycja MVP: 2–3), sposób odblokowywania.
+### 5.4 Klasy postaci — 10 ssaków *(zdecydowane 2026-07-19)*
+Gracz wybiera ssaka; na razie klasa = kolor + statystyki, docelowo drzewka umiejętności (przyszłość) i sci-fi bronie (przyszłość). Itemy wspólne dla wszystkich klas (na start).
+
+| # | Ssak (EN w grze) | Kolor | Szkic roli (drzewko w przyszłości) |
+|---|---|---|---|
+| 1 | Niedźwiedź (Bear) | brąz | tank — dużo HP, mocny cios |
+| 2 | Wilk (Wolf) | szary | szybki melee DPS |
+| 3 | Lis (Fox) | pomarańcz | cwaniak — rzadsze, mocne ciosy (krytyki w przyszłości) |
+| 4 | Zając (Hare) | biały | mobilność — najszybszy, unika |
+| 5 | Kret (Mole) | ciemny brąz | inżynier (miny/kopanie w przyszłości) |
+| 6 | Jeż (Hedgehog) | oliwka | kolce — obrona/odwet |
+| 7 | Nietoperz (Bat) | fiolet | wampiryzm (leczenie z zabić w przyszłości) |
+| 8 | Kapibara (Capybara) | piaskowy | spokojny support (aury/regen w przyszłości) |
+| 9 | Goryl (Gorilla) | grafit | siła — zamaszyste AoE |
+| 10 | Pancernik (Armadillo) | stal | pancerz — najtwardszy, najwolniejszy |
 
 ### 5.5 Krainy (progresja poziomów)
 - Kraina zależna od poziomu/etapu runu: nowa sceneria + nowe mobki + nowy klimat.
@@ -115,12 +135,8 @@ Wymagania wydajnościowe niezależnie od silnika: object pooling, spatial hashin
 
 ## 9. Otwarte pytania
 
-1. **Motyw/temat gry** — "coś ciekawszego niż ziemniaki". **[TODO — decyzja odłożona 2026-07-19, wracamy]**
-   Ustalone ramy (sesja office-hours 2026-07-19): klimat **absurd + neon/sci-fi**, humor **czysto wizualny**, teksty **EN**, motyw ma **wybaczać proste assety** (śmieszne > ładne).
-   Kandydaci z burzy mózgów:
-   - **A. „Glitch Slasher"** — bohater-placeholder (kwadrat z mieczem) w popsutej grze wideo; tniesz glitche i błędy; krainy = epoki gier (ASCII → 8-bit → synthwave-neon → "nowoczesna"); meta-progresja = gra naprawia samą siebie i dosłownie ładnieje po każdym runie. Art na starcie ~za darmo z definicji. *(rekomendacja Claude)*
-   - **B. „Capy Blade"** — kapibara z energetyczną kataną broni onsenu przed korpo-robotami w neonowym mieście; humor = wieczna obojętność kapibary vs skala rzezi; największy potencjał memiczny, ale wymaga uroczego artu.
-   - **C. „Roomba Rampage"** — zbuntowany robot-odkurzacz z doklejonymi ostrzami vs zbuntowane smart-AGD, piętro po piętrze megawieżowca; wirujące ostrza = naturalny atak orbitalny; najsłabszy "wow" na screenshocie.
+1. ~~Motyw/temat gry~~ — **ZDECYDOWANE 2026-07-19: ssaki vs najeźdźcy z kosmosu, neon sci-fi** (pomysł użytkownika; sekcje 5.2 i 5.4). Absurd/humor porzucone; historyczne kandydaty z burzy mózgów (Glitch Slasher / Capy Blade / Roomba Rampage) — patrz git history.
+   Do dorozwinięcia w ramach motywu: nazwa gry?, fabuła w pigułce (czemu ssaki?, skąd inwazja?), wygląd krain.
 2. Model walki: aktywna / auto / hybryda? (5.1)
 3. Struktura runu: ile fal, boss na końcu krainy?
 4. Ekonomia: jedna waluta czy osobna w-runie / meta?
@@ -149,6 +165,9 @@ Poza MVP (świadomie później): mobile/dotyk, więcej klas i krain, boss, dźwi
 | 2026-07-19 | Motyw gry: **ODŁOŻONE** — 3 kandydaci w sekcji 9 | Użytkownik chce to przemyśleć |
 | 2026-07-19 | Dystrybucja: **na start prywatnie** (localhost, bez itch.io itp.) | Gra najpierw tylko dla autora; build statyczny + `base: './'` trzyma koszt późniejszej publikacji przy ~15 min |
 | 2026-07-19 | Multiplayer: **fundament od dnia 1, netcode później** | Deterministyczna symulacja (~10-15% dyscypliny) trzyma drzwi do co-opa otwarte; lockstep dopiero po grywalnym single-playerze — dolepianie sieci do niedeterministycznego kodu = przepisanie rdzenia |
+| 2026-07-19 | **Motyw: ssaki vs najeźdźcy z kosmosu, neon sci-fi** | Pomysł użytkownika; absurd/humor porzucone; pivot Tibia-like odrzucony (za duży), ale duch "zwierzaki + klasy" przetrwał w małej skali |
+| 2026-07-19 | **10 klas-ssaków od startu; klasa = kolor + statystyki** | Bez grafik na razie; drzewka umiejętności i sci-fi bronie w przyszłości; itemy wspólne dla wszystkich klas |
+| 2026-07-19 | **Co-op 1-8 graczy** | Skala "dla ziomeczków" potwierdzona; 8 graczy wykonalne w lockstepie (sieć przesyła tylko inputy) |
 
 ---
 

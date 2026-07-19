@@ -2,10 +2,14 @@
 
 ## Do decyzji
 
-- [ ] **KIERUNEK GRY** *(najważniejsza otwarta decyzja, 2026-07-19)* — użytkownik przemyśliwuje wizję. Stałe: **kilku graczy** (skala znajomych, nie MMO), przeglądarka, Phaser + deterministyczny rdzeń. Na stole m.in.:
-  - a) oryginalny survivors-like (GDD jak jest) — wtedy wraca decyzja o motywie: 3 kandydaci w gdd.md sekcja 9 (Glitch Slasher / Capy Blade / Roomba Rampage); uwaga: ramy „absurd + humor" zostały w międzyczasie zakwestionowane przez użytkownika,
-  - b) elementy zaparkowanego pivotu „Tibia-like" w małej skali (gdd.md → Backlog): frakcje owady vs rośliny, brutalna śmierć z utratą itemów, PvP na prywatnym serwerze dla znajomych,
-  - c) coś nowego — do przyniesienia przez użytkownika.
+- [x] ~~KIERUNEK GRY~~ — **ZDECYDOWANE 2026-07-19:** roguelike-slasher, ssaki vs najeźdźcy z kosmosu, neon sci-fi, co-op 1-8 znajomych (gdd.md sekcje 1, 5.2, 5.4)
+
+## Do dorozwinięcia (motyw jest, szczegóły później)
+
+- [ ] Nazwa gry (WebSlasher to robocza nazwa repo)
+- [ ] Drzewka umiejętności dla 10 klas-ssaków
+- [ ] Sci-fi bronie (bardzo sci-fi — kierunek potwierdzony, konkrety później)
+- [ ] Grafiki (na razie celowo kolory zamiast sprite'ów)
 
 ## Dalej (po decyzji o motywie)
 
@@ -15,6 +19,6 @@
 
 ## Decyzje co-op (przed Fazą 4.5, nie blokują startu)
 
-- [ ] Ilu graczy maksymalnie? (2 vs 4 — wpływa na balans i UI)
+- [x] ~~Ilu graczy maksymalnie?~~ — **1-8 graczy** (decyzja 2026-07-19)
 - [ ] Drop-in w trakcie runu czy tylko wspólny start? (drop-in znacznie droższy w lockstepie)
 - [ ] Tylko LAN/WebRTC prywatnie czy też gra przez internet? (internet = potrzebny malutki serwer sygnalizacyjny)
