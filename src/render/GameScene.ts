@@ -23,6 +23,8 @@ export class GameScene extends Phaser.Scene {
   private lastSeenMeleeTick = -1;
   private skillCone!: Phaser.GameObjects.Graphics;
   private lastSeenSkillTick = -1;
+  private moveMarker!: Phaser.GameObjects.Arc;
+  private rmbWasDown = false;
 
   private hud!: Phaser.GameObjects.Text;
   private deathText!: Phaser.GameObjects.Text;
@@ -68,6 +70,13 @@ export class GameScene extends Phaser.Scene {
       .setStrokeStyle(3, this.cls.color, 1)
       .setVisible(false);
     this.skillCone = this.add.graphics().setDepth(5);
+    // Marker celu ruchu (Dota-style): zielony pierścień w miejscu kliknięcia RMB.
+    this.moveMarker = this.add
+      .circle(0, 0, 18, 0x39ff14, 0)
+      .setStrokeStyle(2, 0x39ff14, 1)
+      .setVisible(false)
+      .setDepth(4);
+    this.input.mouse?.disableContextMenu();
 
     this.playerSprite = this.add
       .image(this.world.playerX, this.world.playerY, 'box-player')
@@ -141,12 +150,32 @@ export class GameScene extends Phaser.Scene {
 
   private sampleInput(): SimInput {
     const k = this.keys;
+    const pointer = this.input.activePointer;
+    const rmb = pointer.rightButtonDown();
+    let targetX = 0;
+    let targetY = 0;
+    if (rmb) {
+      // Ekran → świat: cel ruchu w współrzędnych symulacji.
+      const wp = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+      targetX = wp.x;
+      targetY = wp.y;
+      if (!this.rmbWasDown) this.flashMoveMarker(wp.x, wp.y);
+    }
+    this.rmbWasDown = rmb;
     return {
       moveX: (k.right.isDown || k.d.isDown ? 1 : 0) - (k.left.isDown || k.a.isDown ? 1 : 0),
       moveY: (k.down.isDown || k.s.isDown ? 1 : 0) - (k.up.isDown || k.w.isDown ? 1 : 0),
+      targetX,
+      targetY,
+      hasTarget: rmb,
       attack: k.space.isDown,
       debugSpawn: k.m.isDown,
     };
+  }
+
+  private flashMoveMarker(x: number, y: number): void {
+    this.moveMarker.setPosition(x, y).setVisible(true).setAlpha(1).setScale(1);
+    this.tweens.add({ targets: this.moveMarker, alpha: 0, scale: 0.4, duration: 300 });
   }
 
   update(_time: number, deltaMs: number): void {
@@ -238,7 +267,7 @@ export class GameScene extends Phaser.Scene {
     this.hud.setText(
       `${this.cls.name}  |  FPS ${Math.round(this.game.loop.actualFps)}  |  mobs ${w.aliveMobs}  |  ` +
         `HP ${w.playerHp}/${this.cls.maxHp}  |  kills ${w.kills}  |  ${skill}\n` +
-        `WASD/arrows: move   SPACE: power slash   hold M: spawn mobs (dev)`,
+        `RMB: move (hold = follow cursor)   SPACE: power slash   WASD: alt move   hold M: dev spawn`,
     );
   }
 

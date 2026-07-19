@@ -25,9 +25,21 @@ import * as C from './constants';
 
 /** Wejście gracza na jeden tick. Jedyna droga danych do symulacji. */
 export interface SimInput {
-  /** Kierunek ruchu, każda oś w {-1, 0, 1}; normalizacja po stronie symulacji. */
+  /**
+   * Kierunek ruchu z klawiatury (WASD — alternatywa), każda oś w {-1, 0, 1}.
+   * Niezerowy ruch klawiaturą kasuje cel myszy.
+   */
   moveX: number;
   moveY: number;
+  /**
+   * Sterowanie główne (Dota/LoL-style, decyzja 2026-07-19): cel ruchu we
+   * współrzędnych ŚWIATA. hasTarget=true w ticku, w którym RMB jest wciśnięty
+   * (klik = jeden tick z celem, trzymanie = cel aktualizowany co tick).
+   * Cel jest trwały w stanie symulacji — postać idzie do niego sama.
+   */
+  targetX: number;
+  targetY: number;
+  hasTarget: boolean;
   /** Aktywny skill (Power Slash) — model hybrydowy, decyzja D10 2026-07-19. */
   attack: boolean;
   /** Dev-helper (klawisz M): natychmiastowy spawn 50 mobków do testu wydajności. */
@@ -82,6 +94,11 @@ export class World {
   /** Kierunek patrzenia (ostatni niezerowy ruch) — w tę stronę idzie Power Slash. */
   facingX = 1;
   facingY = 0;
+
+  /** Trwały cel ruchu z RMB (Dota-style); render czyta do rysowania markera. */
+  moveTargetX = 0;
+  moveTargetY = 0;
+  hasMoveTarget = false;
   /** Power Slash (hybryda, D10): cooldown w tickach + dane ostatniego użycia dla renderu. */
   skillCooldown = 0;
   lastSkillTick = -1;
@@ -152,19 +169,47 @@ export class World {
   }
 
   private movePlayer(input: SimInput): void {
+    // Nowy cel z RMB (klik lub trzymanie) — cel przycięty do granic świata.
+    if (input.hasTarget) {
+      this.moveTargetX = Math.min(Math.max(input.targetX, C.PLAYER_RADIUS), C.WORLD_W - C.PLAYER_RADIUS);
+      this.moveTargetY = Math.min(Math.max(input.targetY, C.PLAYER_RADIUS), C.WORLD_H - C.PLAYER_RADIUS);
+      this.hasMoveTarget = true;
+    }
+
     let dx = input.moveX;
     let dy = input.moveY;
     if (dx !== 0 || dy !== 0) {
-      const len = Math.sqrt(dx * dx + dy * dy);
-      dx /= len;
-      dy /= len;
-      this.facingX = dx;
-      this.facingY = dy;
-      this.playerX += dx * this.cls.speed * C.TICK_DT;
-      this.playerY += dy * this.cls.speed * C.TICK_DT;
-      this.playerX = Math.min(Math.max(this.playerX, C.PLAYER_RADIUS), C.WORLD_W - C.PLAYER_RADIUS);
-      this.playerY = Math.min(Math.max(this.playerY, C.PLAYER_RADIUS), C.WORLD_H - C.PLAYER_RADIUS);
+      // WASD (alternatywa) nadpisuje i kasuje cel myszy.
+      this.hasMoveTarget = false;
+    } else if (this.hasMoveTarget) {
+      dx = this.moveTargetX - this.playerX;
+      dy = this.moveTargetY - this.playerY;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      const stepLen = this.cls.speed * C.TICK_DT;
+      if (dist <= stepLen) {
+        // Dochodzimy do celu w tym ticku — snap i stop (bez drgania wokół punktu).
+        this.playerX = this.moveTargetX;
+        this.playerY = this.moveTargetY;
+        this.hasMoveTarget = false;
+        if (dist > 0.001) {
+          this.facingX = dx / dist;
+          this.facingY = dy / dist;
+        }
+        return;
+      }
+    } else {
+      return;
     }
+
+    const len = Math.sqrt(dx * dx + dy * dy);
+    dx /= len;
+    dy /= len;
+    this.facingX = dx;
+    this.facingY = dy;
+    this.playerX += dx * this.cls.speed * C.TICK_DT;
+    this.playerY += dy * this.cls.speed * C.TICK_DT;
+    this.playerX = Math.min(Math.max(this.playerX, C.PLAYER_RADIUS), C.WORLD_W - C.PLAYER_RADIUS);
+    this.playerY = Math.min(Math.max(this.playerY, C.PLAYER_RADIUS), C.WORLD_H - C.PLAYER_RADIUS);
   }
 
   /** Losuje typ najeźdźcy spośród odblokowanych w danym momencie runu (wagi z ENEMIES). */

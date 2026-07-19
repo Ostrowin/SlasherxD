@@ -17,6 +17,7 @@ export class ClassSelectScene extends Phaser.Scene {
   create(): void {
     this.selected = 0;
     this.cards = [];
+    this.input.mouse?.disableContextMenu();
     const { width, height } = this.scale;
 
     this.add
