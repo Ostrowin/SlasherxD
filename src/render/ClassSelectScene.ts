@@ -1,5 +1,8 @@
 import Phaser from 'phaser';
 import { CLASSES } from '../sim/classes';
+import { CURRENCY_NAME } from '../sim/metaConfig';
+import { loadSave } from '../meta/save';
+import { makeStarfield } from './textures';
 
 /**
  * Ekran wyboru klasy: 10 ssaków jako kolorowe kwadraty (bez grafik — decyzja
@@ -15,10 +18,16 @@ export class ClassSelectScene extends Phaser.Scene {
   }
 
   create(): void {
-    this.selected = 0;
     this.cards = [];
     this.input.mouse?.disableContextMenu();
     const { width, height } = this.scale;
+    const save = loadSave();
+    // Startujemy na ostatnio granej klasie — drobna wygoda przy powtórkach.
+    this.selected = Math.min(Math.max(save.stats.lastClassIndex, 0), CLASSES.length - 1);
+
+    // Wspólne kosmiczne tło — menu i gra wyglądają jak jedna gra.
+    makeStarfield(this, 'stars-far', 512, 260, 1337, 0.55);
+    this.add.tileSprite(0, 0, width, height, 'stars-far').setOrigin(0, 0).setDepth(-3);
 
     this.add
       .text(width / 2, height * 0.12, 'WEBSLASHER', {
@@ -64,10 +73,32 @@ export class ClassSelectScene extends Phaser.Scene {
       })
       .setOrigin(0.5);
 
+    // Pasek meta: waluta, rekordy i wejście do LAB.
+    const stats = save.stats;
     this.add
-      .text(width / 2, height - 40, 'arrows: select   ENTER / click: play', {
-        fontFamily: 'monospace', fontSize: '14px', color: '#556677',
+      .text(width / 2, height - 92, `${CURRENCY_NAME}: ${save.currency}`, {
+        fontFamily: 'monospace', fontSize: '20px', color: '#ffd166',
       })
+      .setOrigin(0.5);
+    if (stats.runs > 0) {
+      this.add
+        .text(
+          width / 2,
+          height - 68,
+          `runs ${stats.runs}   victories ${stats.victories}   ` +
+            `best wave ${stats.bestWave}   best kills ${stats.bestKills}`,
+          { fontFamily: 'monospace', fontSize: '13px', color: '#8899aa' },
+        )
+        .setOrigin(0.5);
+    }
+
+    this.add
+      .text(
+        width / 2,
+        height - 40,
+        'arrows: select   ENTER / click: play   K: CO-OP   L: LAB (permanent upgrades)',
+        { fontFamily: 'monospace', fontSize: '14px', color: '#556677' },
+      )
       .setOrigin(0.5);
 
     const kb = this.input.keyboard!;
@@ -76,8 +107,10 @@ export class ClassSelectScene extends Phaser.Scene {
     kb.on('keydown-UP', () => this.move(-5));
     kb.on('keydown-DOWN', () => this.move(5));
     kb.on('keydown-ENTER', () => this.confirm());
+    kb.on('keydown-L', () => this.scene.start('meta'));
+    kb.on('keydown-K', () => this.scene.start('coop', { classIndex: this.selected }));
 
-    this.select(0);
+    this.select(this.selected);
   }
 
   private move(delta: number): void {

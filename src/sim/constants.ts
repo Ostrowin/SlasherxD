@@ -14,7 +14,10 @@ export const PLAYER_RADIUS = 14;
 /** Nietykalność po otrzymaniu obrażeń (w tickach) — wspólna dla kontaktu i pocisków. */
 export const PLAYER_HURT_COOLDOWN_TICKS = Math.round(0.5 * TICK_RATE);
 
+/** Bazowy promień wroga; konkretne typy nadpisują go w enemies.ts. */
 export const MOB_RADIUS = 12;
+/** Największy promień wroga w grze — zapas przy szukaniu w spatial hashu. */
+export const MOB_RADIUS_MAX = 30;
 /** Mobki spawnują się na okręgu o tym promieniu wokół gracza (poza ekranem). */
 export const MOB_SPAWN_DISTANCE = 900;
 /** Maksymalna liczba mobków żywych jednocześnie (rozmiar poola). */
@@ -52,3 +55,12 @@ export const OBSTACLE_SPAWN_CLEARANCE = 350;
 
 /** Rozmiar komórki spatial hasha — ~2x promień moba wystarcza. */
 export const HASH_CELL_SIZE = 64;
+
+/**
+ * Mgła wojny i minimapa (warstwa renderu).
+ * Promień odkrywania ~ tyle, ile gracz realnie widzi na ekranie.
+ */
+export const FOG_CELL_SIZE = 50;
+export const FOG_REVEAL_RADIUS = 430;
+export const MINIMAP_SIZE = 190;
+export const MINIMAP_MARGIN = 14;
