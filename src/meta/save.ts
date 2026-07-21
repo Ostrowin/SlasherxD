@@ -1,3 +1,4 @@
+import { classById, DEFAULT_CLASS_ID } from '../sim/classes';
 import { META_UPGRADES } from '../sim/metaConfig';
 import type { MetaBonus } from '../sim/world';
 
@@ -13,7 +14,21 @@ import type { MetaBonus } from '../sim/world';
  */
 
 const SAVE_KEY = 'webslasher.save';
-const SAVE_VERSION = 1;
+const SAVE_VERSION = 2;
+
+/**
+ * Roster z wersji 1 zapisu, w oryginalnej kolejności. Potrzebny WYŁĄCZNIE do
+ * migracji `lastClassIndex` → `lastClassId`: w v1 klasa była zapisana
+ * indeksem, a roster od tego czasu się zmienił (gdd.md 5.4).
+ * Kapibara i pancernik nie istnieją — mapujemy na klasy o tej samej roli.
+ */
+const V1_CLASS_IDS = [
+  'bear', 'wolf', 'fox', 'hare', 'mole',
+  'hedgehog', 'bat',
+  'otter', // była kapibara — spokojny support, więc rolę przejmuje wydra
+  'gorilla',
+  'bear', // był pancernik — tank, więc rolę przejmuje niedźwiedź
+];
 
 export interface SaveData {
   version: number;
@@ -27,8 +42,8 @@ export interface SaveData {
     bestWave: number;
     bestKills: number;
     totalKills: number;
-    /** Indeks ostatnio granej klasy — podpowiadamy go przy starcie. */
-    lastClassIndex: number;
+    /** Id ostatnio granej klasy — podpowiadamy ją przy starcie. */
+    lastClassId: string;
   };
 }
 
@@ -43,9 +58,27 @@ export function defaultSave(): SaveData {
       bestWave: 0,
       bestKills: 0,
       totalKills: 0,
-      lastClassIndex: 0,
+      lastClassId: DEFAULT_CLASS_ID,
     },
   };
+}
+
+/**
+ * Migracja w miejscu: `stats.lastClassIndex` (v1) → `stats.lastClassId` (v2).
+ * Waluta, ulepszenia i rekordy przechodzą bez zmian.
+ */
+function migrateV1ToV2(save: Record<string, unknown>): void {
+  const stats = save.stats as Record<string, unknown> | undefined;
+  const oldIndex = Number(stats?.lastClassIndex);
+  const migrated =
+    Number.isFinite(oldIndex) && oldIndex >= 0 && oldIndex < V1_CLASS_IDS.length
+      ? V1_CLASS_IDS[oldIndex]
+      : DEFAULT_CLASS_ID;
+  if (stats) {
+    stats.lastClassId = migrated;
+    delete stats.lastClassIndex;
+  }
+  save.version = SAVE_VERSION;
 }
 
 /** Odczyt zapisu; przy braku, uszkodzeniu albo starej wersji zwraca domyślny. */
@@ -54,7 +87,11 @@ export function loadSave(): SaveData {
     const raw = localStorage.getItem(SAVE_KEY);
     if (!raw) return defaultSave();
     const parsed = JSON.parse(raw) as Partial<SaveData>;
-    if (!parsed || parsed.version !== SAVE_VERSION) return defaultSave();
+    if (!parsed) return defaultSave();
+    // Wersja 1 → 2: klasa była zapisana indeksem. Migrujemy zamiast kasować,
+    // żeby zmiana rosteru nie zabrała graczowi uzbieranego SALVAGE.
+    if (parsed.version === 1) migrateV1ToV2(parsed as Record<string, unknown>);
+    else if (parsed.version !== SAVE_VERSION) return defaultSave();
 
     const base = defaultSave();
     const upgrades: Record<string, number> = {};
@@ -71,7 +108,15 @@ export function loadSave(): SaveData {
       version: SAVE_VERSION,
       currency: Number.isFinite(currency) ? Math.max(0, Math.floor(currency)) : 0,
       upgrades,
-      stats: { ...base.stats, ...(parsed.stats ?? {}) },
+      stats: {
+        ...base.stats,
+        ...(parsed.stats ?? {}),
+        // Klasa mogła zniknąć z rosteru między wersjami gry — wtedy wracamy
+        // do domyślnej, zamiast zostawiać w zapisie martwe id.
+        lastClassId: classById(parsed.stats?.lastClassId ?? '')
+          ? parsed.stats!.lastClassId
+          : DEFAULT_CLASS_ID,
+      },
     };
   } catch {
     // Prywatne okno, wyłączony storage, uszkodzony JSON — gramy bez zapisu.

@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { CLASSES } from '../sim/classes';
+import { classById, DEFAULT_CLASS_ID } from '../sim/classes';
 import { BroadcastTransport } from '../net/broadcastTransport';
 import type { LobbyMember, NetMessage, Transport } from '../net/types';
 import { makeStarfield } from './textures';
@@ -15,7 +15,7 @@ import { makeStarfield } from './textures';
  */
 export class CoopScene extends Phaser.Scene {
   private transport!: Transport;
-  private classIndex = 0;
+  private classId = DEFAULT_CLASS_ID;
   private isHost = false;
   private hostId = '';
   private members: LobbyMember[] = [];
@@ -27,8 +27,8 @@ export class CoopScene extends Phaser.Scene {
     super('coop');
   }
 
-  init(data: { classIndex?: number }): void {
-    this.classIndex = data.classIndex ?? 0;
+  init(data: { classId?: string }): void {
+    this.classId = data.classId ?? DEFAULT_CLASS_ID;
   }
 
   create(): void {
@@ -76,8 +76,8 @@ export class CoopScene extends Phaser.Scene {
     // nas poprawi w ciągu milisekund.
     this.isHost = true;
     this.hostId = this.transport.localId;
-    this.members = [{ id: this.transport.localId, classIndex: this.classIndex }];
-    this.transport.send({ t: 'hello', id: this.transport.localId, classIndex: this.classIndex });
+    this.members = [{ id: this.transport.localId, classId: this.classId }];
+    this.transport.send({ t: 'hello', id: this.transport.localId, classId: this.classId });
     this.refresh();
 
     const kb = this.input.keyboard!;
@@ -94,14 +94,17 @@ export class CoopScene extends Phaser.Scene {
   private onMessage(msg: NetMessage): void {
     if (msg.t === 'hello') {
       if (this.isHost) {
+        // Nieznane id klasy = inna wersja gry po drugiej stronie. Wpuszczenie
+        // takiego gracza dałoby dwie różne symulacje, więc go odrzucamy.
+        if (!classById(msg.classId)) return;
         if (!this.members.some((m) => m.id === msg.id)) {
-          this.members.push({ id: msg.id, classIndex: msg.classIndex });
+          this.members.push({ id: msg.id, classId: msg.classId });
         }
         // Host jest źródłem prawdy o składzie i kolejności (= indeksach graczy).
         this.transport.send({ t: 'roster', hostId: this.hostId, members: this.members });
       } else {
         // Nowy gracz nie zna jeszcze składu — host mu odpowie.
-        this.transport.send({ t: 'hello', id: this.transport.localId, classIndex: this.classIndex });
+        this.transport.send({ t: 'hello', id: this.transport.localId, classId: this.classId });
       }
       this.refresh();
       return;
@@ -137,7 +140,7 @@ export class CoopScene extends Phaser.Scene {
       this.members
         .map((m, i) => {
           const you = m.id === this.transport.localId ? '  <- you' : '';
-          return `${i + 1}. ${CLASSES[m.classIndex].name}${you}`;
+          return `${i + 1}. ${classById(m.classId)?.name ?? '???'}${you}`;
         })
         .join('\n'),
     );
@@ -156,12 +159,12 @@ export class CoopScene extends Phaser.Scene {
     this.started = true;
     const localIndex = members.findIndex((m) => m.id === this.transport.localId);
     this.scene.start('game', {
-      classIndex: members[Math.max(0, localIndex)].classIndex,
+      classId: members[Math.max(0, localIndex)].classId,
       coop: {
         transport: this.transport,
         seed,
         localIndex: Math.max(0, localIndex),
-        classIndexes: members.map((m) => m.classIndex),
+        classIds: members.map((m) => m.classId),
       },
     });
   }

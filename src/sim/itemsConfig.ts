@@ -29,6 +29,21 @@ export const ITEM_CAPS = {
   minCooldownMult: 0.4,
   /** Maksymalna liczba ładunków Overshielda naraz. */
   maxShieldCharges: 3,
+  /**
+   * Sufit szansy na kryta. Poniżej 100% celowo: przy gwarantowanym krycie
+   * „krytyczne" przestaje być zdarzeniem, a staje się zwykłym mnożnikiem
+   * obrażeń — i cała statystyka traci sens.
+   */
+  critChanceMax: 75,
+  /**
+   * Sufity na statystyki PODTRZYMUJĄCE ŻYCIE. Bez nich wystarczy ustawić
+   * dowolne z nich wysoko, żeby stanie w miejscu stało się optymalną
+   * strategią — gra przestaje być o unikaniu, a zaczyna o czekaniu.
+   * Dokładnie tak zepsuł grę regen (2026-07-19) i wampiryzm (2026-07-20).
+   */
+  leechMax: 10,
+  regenMax: 8,
+  thornsMax: 60,
 };
 
 /**
@@ -64,7 +79,18 @@ export type ItemKind =
   | 'leech'
   | 'magnet'
   | 'knockback'
-  | 'thorns';
+  | 'thorns'
+  | 'critChance'
+  | 'critDamage'
+  | 'raiseDead'
+  /* Skalowanie sojuszniczych jednostek (`minionsConfig.ts`) — buildy
+     przywoływaczy rosną przez TE statystyki, nie przez własne obrażenia. */
+  | 'minionDamage'
+  | 'minionHp'
+  | 'minionCount'
+  | 'minionDuration'
+  /** Promień fali uderzeniowej doskoku (build skoczka). */
+  | 'impactRadius';
 
 export interface ItemDef {
   kind: ItemKind;
@@ -91,4 +117,6 @@ export const ITEMS: ItemDef[] = [
   { kind: 'magnet',      name: 'Grav Magnet',      color: 0xf1f5f9, weight: 5,  value: 12 },
   { kind: 'knockback',   name: 'Knockback Booster', color: 0xffb703, weight: 4, value: 15 },
   { kind: 'thorns',      name: 'Thorn Field',      color: 0x99d98c, weight: 5,  value: 2 },
+  { kind: 'critChance',  name: 'Targeting Chip',   color: 0xff2e63, weight: 7,  value: 3 },
+  { kind: 'critDamage',  name: 'Fracture Round',   color: 0xff8fa3, weight: 5,  value: 15 },
 ];

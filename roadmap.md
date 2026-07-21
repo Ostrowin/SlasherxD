@@ -49,6 +49,31 @@ Cel: pełny run od startu do śmierci, z motywem (ssaki vs kosmiczni najeźdźcy
 - [ ] **Playtest #2** po zmianach trudności — sprawdzić, czy Brute daje frajdę i czy fale 45 s nie są za długie
 - [ ] Balans finalny **po projekcie nowych ataków** (użytkownik przygotowuje) — teraz strojenie byłoby marnowane
 
+### Balans 2026-07-20 — zmierzone benchem (`npm run bench`)
+
+36 runów na politykę (12 klas × 3 seedy), bot deterministyczny.
+
+| Styl gry | Zwycięstwa | Średnia fala | Średni poziom |
+|---|---|---|---|
+| Stanie w miejscu | 0/36 | 1.1/10 | 2.9/25 |
+| Aktywna gra (kiting + skille + talenty) | 0/36 | 3.3/10 | 12.9/25 |
+
+*(Aktywna gra spadła z 3.6 po dodaniu Power Jumpa: bot używa doskoku wyłącznie do ucieczki, a Power Jump ma dłuższy cooldown w zamian za obrażenia. Bot nie potrafi skorzystać z jego ofensywy — człowiek powinien.)*
+
+**Znalezione i naprawione: nietoperz wygrywał cały run STOJĄC W MIEJSCU.** Generator gałęzi pasywnych używał jednej wspólnej wartości na rangę dla wszystkich statystyk — dla obrażeń 5% jest sensowne, ale dla wampiryzmu 1 HP/zabicie dawało **21 HP z każdego zabicia** (karta ulepszenia daje 1, item 0.2). Naprawa dwuwarstwowa: wartości rang wyprowadzane z wartości kart (`rankValue`) + sufity na statystyki podtrzymujące życie (`ITEM_CAPS.leechMax/regenMax/thornsMax`). To ta sama klasa błędu co nieśmiertelność z regeneracji z 2026-07-19 — dlatego bench ma teraz stały alarm na „stanie w miejscu zaszło za daleko".
+
+**Znalezione 2026-07-20 przy pierwszym URUCHOMIENIU renderu: połowa wciśnięć klawiszy i kliknięć przepadała.**
+`sampleInput()` wykonuje się co KLATKĘ (60/s), a `world.step()` co TICK (30/s). Jednorazowe wejścia — `JustDown` dla `Q`/`W`/`E`/spacji oraz kliknięcia w talent i w kartę ulepszenia — były konsumowane w klatce bez ticku i znikały bez śladu. Objaw dla gracza: „czasem skill nie odpala", „czasem klik w talent nic nie robi". Naprawa: wejścia jednorazowe są **buforowane do momentu, aż symulacja je faktycznie skonsumuje**, i stosowane dokładnie raz (`withoutOneShots` chroni przed podwójnym użyciem, gdy w jednej klatce zmieści się kilka ticków). To samo zabezpieczenie dodane w lockstepie przy nadganianiu ticków.
+
+**Znalezione 2026-07-20 (zgłoszone przez gracza): gra zawieszała się przy zabiciu bossa.**
+`bossMobIndex` był WISZĄCYM WSKAŹNIKIEM: po śmierci bossa jego slot w poolu mobków zwalniał się, spawner oddawał go pierwszemu nowemu wrogowi, a świat dalej uważał ten slot za bossa. Skutki dwa naraz: `BOSSES[-1]` → `undefined.color` wywalało `drawBossBar` **w każdej klatce** (obraz zamarzał), a `endWave()` nigdy nie odpalało, bo „boss wciąż żył" — fala trwała w nieskończoność. Objaw dla gracza: „ostatni cios, ścinka i nie mogę nic zrobić".
+Naprawa: `bossMobIndex` zerowany w chwili śmierci, a fakt pokonania trzymany w osobnej fladze `bossDefeated` (plus zabezpieczenie przed ponownym przyzwaniem bossa). Dodatkowo render nie może się już wywalić na złym indeksie — awaria rysowania nigdy nie powinna móc zamrozić całej gry. Regresja zabezpieczona testem: **`npm test`**.
+
+**Do rozstrzygnięcia (balans należy do użytkownika, nie zmieniałem):**
+1. **VOID WARDEN na fali 5 jest ścianą** — większość runów kończy się dokładnie tam (potwierdzone też playtestem człowieka). Złagodzić, przesunąć dalej czy zostawić jako sprawdzian?
+2. **Druga połowa drzewka to martwa treść** — bot kończy runy na poziomie ~13 z 25, więc rzędy wymagające 10 i 15 punktów w gałęzi praktycznie nie istnieją w prawdziwej grze.
+3. Bot jest prosty (naiwny kiting, nie używa przeszkód) — 0% zwycięstw mierzy trudność dla SŁABEGO gracza, nie dla dobrego.
+
 ### Balans 2026-07-19 — zmierzone (bot, nie człowiek)
 | Styl gry | Wynik |
 |---|---|
@@ -62,6 +87,12 @@ Cel: pełny run od startu do śmierci, z motywem (ssaki vs kosmiczni najeźdźcy
 - [x] Wybór ulepszenia między falami — 1 z 3, pula w `wavesConfig.ts` *(2026-07-19)*
 - [x] Ekran śmierci z podsumowaniem runu, ekran zwycięstwa, pauza (ESC) *(2026-07-19)*
 - [x] Zapis w localStorage (waluta, ulepszenia, statystyki; wersjonowany i odporny na uszkodzenie) *(2026-07-19)* (ustawienia + postęp)
+
+### Weryfikacja wizualna w środowisku dev *(sposób znaleziony 2026-07-20)*
+
+**`npm test`** — testy regresji logiki (obecnie: zawieszenie przy zabiciu bossa). **`npm run bench`** — pomiar balansu i determinizmu.
+
+Karta podglądu jest dla przeglądarki kartą „w tle" (`visibilityState: hidden`), więc `requestAnimationFrame` **nigdy się nie odpala** — scena gry nie startuje, zrzuty ekranu się wieszają, a kod renderu nie wykonuje się ani razu. Obejście: **ręczne napędzanie pętli** przez `game.loop.step(t)` z konsoli, wysyłanie prawdziwych `KeyboardEvent`, a zamiast zrzutu — `canvas.toDataURL()` i zliczanie pikseli w danym kolorze. Tym sposobem wykryto błąd gubionych wejść opisany wyżej.
 
 **Wyjście z fazy:** znajomy gra jeden pełny run i sam z siebie mówi "jeszcze raz".
 
@@ -114,6 +145,42 @@ Cel: 1-8 graczy w jednym runie (decyzja 2026-07-19). Szacunek: solo ~2-3 tyg / C
 - [ ] Checksum stanu symulacji między klientami (wykrywanie desyncu) — bez tego debugowanie lockstepu to koszmar
 
 **Wyjście z fazy:** dwie przeglądarki, jeden run, zero rozjazdów symulacji przez 15 minut gry.
+
+---
+
+## Faza 4.7 — Poziomy, drzewko talentów i specjalizacje *(przeprojektowana 2026-07-20, gdd.md 5.8)*
+
+Cel: **cała gra mieści się w jednym runie.** Wchodzisz gołą postacią, zdobywasz poziomy, budujesz drzewko, maksujesz klasę — po runie reset. Zero kont, zapisu postaci i odblokowań.
+
+*(Wcześniejsza wersja tej fazy — konta, exp per klasa, alty, 5 runów w tierach — porzucona tego samego dnia; analiza zwinięta w gdd.md 5.8.)*
+
+- [x] **1. Klasa po tekstowym id, nie po indeksie** *(2026-07-20)*
+      `classId` w protokole (`hello`, `LobbyMember`) i w zapisie; lobby odrzuca gracza z nieznanym id klasy, czyli obcą wersję gry. Zapis migrowany v1→v2 z zachowaniem SALVAGE, ulepszeń i rekordów (usunięte klasy mapowane na te o tej samej roli: kapibara→wydra, pancernik→niedźwiedź).
+- [x] ~~**2. Typy obrażeń (fizyczne/magiczne)**~~ — **PORZUCONE 2026-07-20**, zanim powstał kod. Zostaje jeden rodzaj obrażeń (gdd.md 5.11).
+- [x] **3. Roster 12 klas** *(2026-07-20)* — usunięci kapibara i pancernik, dodani szczur, dzik, wydra, hiena; siatka wyboru 6×2. **Same dane** — sygnaturowe mechaniki klas przyjdą razem z drzewkiem talentów (to ten sam kod).
+- [x] **4. Poziomy w runie + max level** *(2026-07-20)* — exp z zabójstw i za falę, max poziom 25, punkt talentu za awans. **Exp za falę wyliczany z długości runu**, więc wydłużenie runu nie wymaga przestrajania krzywej ręcznie. Zmierzone: maks poziom pada na fali 7/10 przy agresywnej grze.
+- [x] **5. Drzewko talentów — system + UI** *(2026-07-20)* — 3 gałęzie na klasę, rzędy odblokowywane inwestycją w gałąź (`requiresInBranch`), panel pod `T` działający w trakcie fali (co-op nie ma pauzy). Wybór talentu idzie przez `SimInput`, więc jest deterministyczny.
+- [x] **5a. Doskok pod spacją + skok zająca** *(2026-07-20)* — `dash` blokowany przeszkodami, `jump` nad nimi z nietykalnością w locie; wariant w `ClassDef.dashMode`. Przy okazji: Power Slash na `Q`, skille w trybie quick cast (bez trybu celowania), pod przyszłe `W`/`E`/`R`.
+- [x] **5b. Wybór specjalizacji na 2. poziomie** *(2026-07-20)* — rząd nad dotychczasowymi 0/5/10/15. Wybór jest nieodwracalny i zamyka pozostałe gałęzie do końca runu. Wybór SNIPERA **podmienia `Q`** na daleki, wąski strzał — pierwszy talent zmieniający zachowanie. Mechanizm: skille jako dane (`src/sim/skillsConfig.ts`), talent wskazuje id umiejętności.
+- [x] **5c. Krytyki jako globalny efekt** *(2026-07-20)* — `critChance` i `critDamage` w dropach i kartach przerwy, sufit 75% szansy, losowane z RNG symulacji (deterministyczne). Snajper skaluje je mocniej — do dorobienia w jego gałęzi.
+- [x] **5d. SOJUSZNICZE JEDNOSTKI — system ogólny** *(2026-07-20)*
+      `src/sim/minionsConfig.ts`: osie ruchu (`static`/`follow`/`hunt`), trwałość (HP + czas życia), limity na gracza, a **ataki to ten sam słownik co u bossów** (`slam`/`ring`) plus nowy `bolt`. Behemot dostaje ataki Hive Queen dosłownie przez `HIVE_QUEEN.phases[0].attacks` — nie kopię.
+      Trzy specjalizacje na tym systemie: **hiena NECROMANCER** (pasywka — wróg zabity w promieniu wstaje po naszej stronie; `Q` bez zmian), **dzik TOTEM ENGINEER** (obsadza Q/W/E trzema totemami: wieżyczka, pulsujący, odpychający), **zając SUMMONER** (`Q` przywołuje Behemota z paskiem HP; alternatywa dla Slipstreamu — wybór jednej gałęzi zamyka drugą).
+      Przy okazji: sloty umiejętności **Q/W/E** (`SimInput.skillCast`), pociski sojusznicze w tym samym poolu co wrogie (`Projectile.friendly`), nowy efekt `raiseDead`.
+- [x] **5d-bis. Wzmocnienia i skalowanie jednostek talentami** *(2026-07-20)*
+      Behemot **wieczny** (bez licznika, ginie tylko od obrażeń, jako jedyny przeżywa przerwę), HP 320→620, szybsze ataki. Nekromanta: promień wskrzeszania ×3 (320→960), życie wskrzeszonych 12 s→35 s.
+      Nowe efekty `minionDamage` / `minionHp` / `minionCount` / `minionDuration` — trzy gałęzie przywoływaczy skalują się **przez jednostki, nie przez własne obrażenia gracza**. Pełna gałąź nekromanty: +240% obrażeń stada i +16 sztuk naraz; summonera: +205% HP i drugi Behemot.
+- [x] **5g. Zając SLIPSTREAM — build skoczka** *(2026-07-20)* — `Q` skok bojowy z falą, `W` nova 360°, oba zerują cooldown skoku; apex zamienia spację w Power Jump. Skalowanie promienia fali +845% przez gałąź. Doskok odbija się od dużych wrogów i rani ich, gdy ulepszony. Nowe w symulacji: `LeapSkill` i `resetsDash`; nova i „Q jest skokiem" nie wymagały nowego kodu.
+- [ ] **5d-ter. Kolejne jednostki i przywoływacze** — dziś to wpis w `MINIONS` + `SKILLS`, bez zmian w symulacji
+      Nie „dron", tylko jeden system pod wszystkie przyszłe pomysły: dron, **nekromanta hieny** (mnóstwo słabych stworków), **budowniczy turretów** (nieruchome), **przywoływacz** (pojedyncze silne stwory ze skillami). Ten sam wzorzec co bossy: prymitywy w symulacji, jednostki w danych.
+      Osie zmienności do pokrycia w `MinionDef`: ruch (podąża za właścicielem / nieruchoma / poluje sama), cel (najbliższy wróg), atak (zwarcie / pocisk — docelowo ten sam słownik co ataki bossów, żeby duże stwory dostały skille za darmo), trwałość (HP albo niezniszczalna, czas życia), limity.
+      Pierwsza jednostka: **dron** z kart przerwy — szybko atakuje najbliższego, na start niezniszczalny, drony się sumują (świadomie OP). Ulepszenia dropią z mobów, gdy już masz drona. Potrzebny wysoki bezpiecznik ilościowy — 8 graczy × stado to realne ryzyko dla FPS.
+- [x] **5e. Power Jump zająca** *(2026-07-20)* — specjalizacja SLIPSTREAM zamienia skok w skok z obrażeniami obszarowymi przy lądowaniu. **Test ogólności mechanizmu zdany:** snajper podmienia umiejętność spod `Q`, zając podmienia doskok spod spacji — ten sam `TalentDef`, dwa różne sloty, zero nowych rozgałęzień w symulacji. Doskoki są teraz danymi (`DASHES` w `skillsConfig.ts`), tak samo jak skille.
+- [ ] **5f. Friendly fire na strzale snajpera** (gdd.md 5.12) — pole `friendlyFire` jest już w `SkillDef`, brakuje samego trafiania sojuszników i bezpieczników (nie zabija, mnożnik poniżej 100%).
+- [ ] **6. Rozdzielić role drzewka i kart z przerwy** — dziś oba dają czyste liczby, więc na razie się dublują. Docelowo drzewko = tożsamość i zachowanie, karty = ogólne statystyki.
+- [ ] **7. Decyzja o SALVAGE/LAB** — system działa, ale nie ma już miejsca w koncepcji. Usunąć czy zostawić zapis wyłącznie na statystyki i rekordy?
+
+**Wyjście z fazy:** ekipa siada do jednego runu, każdy gra inną klasą, w połowie widać, że dwaj gracze tej samej klasy poszliby zupełnie innym buildem — a po zakończeniu nikt nic nie traci ani nie zyskuje poza chęcią zagrania jeszcze raz inną klasą.
 
 ---
 

@@ -99,6 +99,8 @@ export const UPGRADES: UpgradeDef[] = [
   { kind: 'regen',       name: 'Nano Weave',       desc: '+1.0 HP per second',     color: 0x7bff9e, weight: 7,  value: 1 },
   { kind: 'leech',       name: 'Blood Protocol',   desc: '+1 HP per kill',         color: 0xb0004d, weight: 6,  value: 1 },
   { kind: 'thorns',      name: 'Spike Array',      desc: '+6 thorns damage',       color: 0x99d98c, weight: 6,  value: 6 },
+  { kind: 'critChance',  name: 'Weak Point Scan',  desc: '+8% critical chance',    color: 0xff2e63, weight: 9,  value: 8 },
+  { kind: 'critDamage',  name: 'Fracture Payload', desc: '+40% critical damage',   color: 0xff8fa3, weight: 7,  value: 40 },
   { kind: 'overshield',  name: 'Shield Battery',   desc: '+2 overshield charges',  color: 0x4dc9ff, weight: 5,  value: 2 },
   { kind: 'knockback',   name: 'Impact Amplifier', desc: '+50% knockback',         color: 0xffb703, weight: 5,  value: 50 },
   { kind: 'magnet',      name: 'Wide Collector',   desc: '+40 pickup radius',      color: 0xf1f5f9, weight: 5,  value: 40 },

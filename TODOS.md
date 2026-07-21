@@ -7,7 +7,14 @@
 ## Do dorozwinięcia (motyw jest, szczegóły później)
 
 - [ ] Nazwa gry (WebSlasher to robocza nazwa repo)
-- [ ] Drzewka umiejętności dla 10 klas-ssaków
+- [x] ~~Drzewka umiejętności dla klas~~ — **ZAPROJEKTOWANE 2026-07-20:** 12 klas × 3 specjalizacje jako gałęzie drzewka W RUNIE, bez zapisu i odblokowań (gdd.md 5.8). Wdrożenie: roadmap.md Faza 4.7
+- [ ] **Trudność: Void Warden na fali 5 jest ścianą** — 0/36 runów bota przechodzi dalej; człowiek też tam zginął. Złagodzić, przesunąć czy zostawić? (roadmap.md, balans 2026-07-20)
+- [ ] **Druga połowa drzewka talentów to martwa treść** — realne runy kończą się na poziomie ~13/25, więc rzędy za 10 i 15 punktów nikt nie widzi
+- [ ] **Długość runu** — dziś ~8 min, potrzeba 20-40 min, żeby zmieścił się łuk „goły → maks → master" (gdd.md 5.8)
+- [ ] **Los SALVAGE/LAB** — zaimplementowane, ale „zero zapisu" je wywraca: usunąć czy zostawić tylko statystyki? (gdd.md 5.7)
+- [ ] Kształt drzewka talentów: ile punktów, ile gałęzi, czy gałąź trzeba domknąć? (gdd.md 5.8)
+- [ ] Specjalizacje pozostałych klas (znane: kret → Sniper, zając → Aura Master)
+- [ ] Co przyciąga do kolejnego runu bez odblokowań — wybór trudności w lobby? (gdd.md 5.8)
 - [ ] Sci-fi bronie (bardzo sci-fi — kierunek potwierdzony, konkrety później)
 - [ ] Grafiki (na razie celowo kolory zamiast sprite'ów)
 - [ ] Więcej bossów (fale 5 i 10 obsadzone: Void Warden, Hive Queen — nowy boss to jeden plik w `src/sim/bosses/` + wpis w `index.ts` i `BOSS_WAVES`)

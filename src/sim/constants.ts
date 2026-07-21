@@ -43,6 +43,17 @@ export const SKILL_CONE_COS = 0.5;
 export const SKILL_KNOCKBACK = 70;
 export const SKILL_COOLDOWN_TICKS = Math.round(3 * TICK_RATE);
 
+/* ── Dash / skok (spacja) ─────────────────────────────────────────────────
+ * Dash ma WŁASNY cooldown, niezależny od skilla. Gdyby dzielił zasób ze
+ * skillem, gracz musiałby wybierać „uciec albo uderzyć" — a wtedy w praktyce
+ * nie używa żadnego z nich w dobrym momencie.
+ */
+/** Dystans doskoku w pikselach. */
+export const DASH_DISTANCE = 230;
+/** Jak długo trwa (ticki). Krótko = czuć jak szarpnięcie, nie jak bieg. */
+export const DASH_TICKS = Math.round(0.18 * TICK_RATE);
+export const DASH_COOLDOWN_TICKS = Math.round(3 * TICK_RATE);
+
 /**
  * Losowe przeszkody na mapie (deterministyczne z seeda — ta sama mapa dla
  * wszystkich graczy w co-opie). Blokują gracza, mobki i pociski (osłony!).

@@ -1,4 +1,4 @@
-import { EMPTY_INPUT, World, type SimInput } from '../sim/world';
+import { EMPTY_INPUT, withoutOneShots, World, type SimInput } from '../sim/world';
 import * as C from '../sim/constants';
 import type { NetMessage, Transport } from './types';
 
@@ -244,8 +244,13 @@ export class LockstepSession {
 
   private sendPendingInputs(localInput: SimInput): void {
     const targetTick = this.world.tick + 1 + INPUT_DELAY_TICKS;
+    let first = true;
     while (this.sentUpTo < targetTick) {
       this.sentUpTo++;
+      // Przy nadganianiu kilku ticków naraz wysyłamy pełne wejście tylko raz.
+      // Bez tego jedno kliknięcie w talent kupiłoby go dwa razy.
+      if (!first) localInput = withoutOneShots(localInput);
+      first = false;
       // Własne wejście zapisujemy od razu — BroadcastChannel nie dostarcza
       // wiadomości do nadawcy, więc nikt nie zrobi tego za nas.
       this.slotFor(this.sentUpTo)[this.localIndex] = localInput;

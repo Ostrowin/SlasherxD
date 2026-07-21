@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { CLASSES } from '../sim/classes';
+import { CLASSES, classIndexById } from '../sim/classes';
 import { CURRENCY_NAME } from '../sim/metaConfig';
 import { loadSave } from '../meta/save';
 import { makeStarfield } from './textures';
@@ -23,7 +23,7 @@ export class ClassSelectScene extends Phaser.Scene {
     const { width, height } = this.scale;
     const save = loadSave();
     // Startujemy na ostatnio granej klasie — drobna wygoda przy powtórkach.
-    this.selected = Math.min(Math.max(save.stats.lastClassIndex, 0), CLASSES.length - 1);
+    this.selected = classIndexById(save.stats.lastClassId);
 
     // Wspólne kosmiczne tło — menu i gra wyglądają jak jedna gra.
     makeStarfield(this, 'stars-far', 512, 260, 1337, 0.55);
@@ -40,8 +40,8 @@ export class ClassSelectScene extends Phaser.Scene {
       })
       .setOrigin(0.5);
 
-    // Siatka 5x2.
-    const cols = 5;
+    // Siatka 6x2 — 12 klas mieści się w dwóch równych rzędach.
+    const cols = 6;
     const cellW = 150;
     const cellH = 130;
     const gridW = cols * cellW;
@@ -108,7 +108,7 @@ export class ClassSelectScene extends Phaser.Scene {
     kb.on('keydown-DOWN', () => this.move(5));
     kb.on('keydown-ENTER', () => this.confirm());
     kb.on('keydown-L', () => this.scene.start('meta'));
-    kb.on('keydown-K', () => this.scene.start('coop', { classIndex: this.selected }));
+    kb.on('keydown-K', () => this.scene.start('coop', { classId: CLASSES[this.selected].id }));
 
     this.select(this.selected);
   }
@@ -129,6 +129,6 @@ export class ClassSelectScene extends Phaser.Scene {
   }
 
   private confirm(): void {
-    this.scene.start('game', { classIndex: this.selected });
+    this.scene.start('game', { classId: CLASSES[this.selected].id });
   }
 }

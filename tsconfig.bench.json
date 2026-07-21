@@ -1,0 +1,18 @@
+{
+  "// ": "Osobna konfiguracja dla bencha: symulacja jest czystym TS bez DOM, więc",
+  "//  ": "kompilujemy ją do CommonJS i puszczamy w node. CJS nie wymaga rozszerzeń",
+  "//   ": "w importach, więc kod z src/sim działa bez żadnych zmian ani zależności.",
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "lib": ["ES2020"],
+    "strict": true,
+    "noFallthroughCasesInSwitch": true,
+    "skipLibCheck": true,
+    "rootDir": ".",
+    "outDir": ".bench",
+    "noEmit": false
+  },
+  "include": ["bench", "src/sim"]
+}

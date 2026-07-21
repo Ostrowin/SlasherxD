@@ -9,7 +9,9 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "lint": "eslint src",
-    "format": "prettier --write \"src/**/*.ts\" \"*.{json,html,md}\""
+    "format": "prettier --write \"src/**/*.ts\" \"*.{json,html,md}\"",
+    "bench": "tsc -p tsconfig.bench.json && node -e \"require('fs').writeFileSync('.bench/package.json','{\\\"type\\\":\\\"commonjs\\\"}')\" && node .bench/bench/bench.js",
+    "test": "tsc -p tsconfig.bench.json && node -e \"require('fs').writeFileSync('.bench/package.json','{\\\"type\\\":\\\"commonjs\\\"}')\" && node .bench/bench/regressions.js"
   },
   "dependencies": {
     "phaser": "^3.90.0"

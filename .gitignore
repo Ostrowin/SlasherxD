@@ -5,3 +5,6 @@ dist/
 
 # Lokalne ustawienia Claude Code (per maszyna, nie do repo)
 .claude/settings.local.json
+
+# Wynik kompilacji bencha (npm run bench)
+.bench/

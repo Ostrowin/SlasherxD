@@ -1,9 +1,12 @@
 import Phaser from 'phaser';
-import { World, type Player, type SimInput } from '../sim/world';
-import { CLASSES, type ClassDef } from '../sim/classes';
+import { World, withoutOneShots, type Player, type SimInput } from '../sim/world';
+import { CLASSES, classById, DEFAULT_CLASS_ID, type ClassDef } from '../sim/classes';
 import { ENEMIES } from '../sim/enemies';
 import { BOSSES, type BossDef } from '../sim/bosses';
 import { sfx } from './audio';
+import { branchesFor, PROGRESSION, talentSlotsFor } from '../sim/talentsConfig';
+import { SKILL_KEYS } from '../sim/skillsConfig';
+import { MINIONS, type MinionDef } from '../sim/minionsConfig';
 import { DROP_CONFIG, ITEMS } from '../sim/itemsConfig';
 import { UPGRADES, WAVE_CONFIG } from '../sim/wavesConfig';
 import { CURRENCY_NAME, computeReward } from '../sim/metaConfig';
@@ -19,7 +22,8 @@ export interface CoopInit {
   transport: Transport;
   seed: number;
   localIndex: number;
-  classIndexes: number[];
+  /** Kolejność = indeksy graczy w symulacji; wartości to id klas. */
+  classIds: string[];
 }
 import * as C from '../sim/constants';
 
@@ -45,6 +49,8 @@ const ENEMY_SHAPES = [
  */
 /** Każdy boss ma własną teksturę — klucz wyprowadzamy z jego id. */
 const bossTextureKey = (def: BossDef): string => `boss-${def.id}`;
+/** Każda jednostka sojusznicza ma własną teksturę — jak bossy. */
+const minionTextureKey = (def: MinionDef): string => `minion-${def.id}`;
 
 export class GameScene extends Phaser.Scene {
   private world!: World;
@@ -73,12 +79,29 @@ export class GameScene extends Phaser.Scene {
   private lastSeenSkillTicks: number[] = [];
   /** Ile rozłączeń już ogłosiliśmy — żeby nie powtarzać komunikatu w kółko. */
   private announcedDrops = 0;
+  /** Panel talentów (klawisz T) — działa też w trakcie fali, bo co-op nie ma pauzy. */
+  private talentUi: Phaser.GameObjects.GameObject[] = [];
+  private talentPanelOpen = false;
+  private pendingTalentPick = -1;
+  /**
+   * Bufory wejść JEDNORAZOWYCH. Render chodzi szybciej niż symulacja, więc
+   * bez nich kliknięcie albo wciśnięcie klawisza wypadające w klatce bez
+   * ticku po prostu przepadało — z perspektywy gracza „czasem nie działa".
+   */
+  private pendingSkillCast = -1;
+  private pendingDash = false;
+  /** Odcisk stanu drzewka — panel przerysowujemy tylko, gdy coś się zmieni. */
+  private talentUiSignature = '';
+  private lastSeenLevel = 1;
+
   /** Dźwięki grane RAZ na run — flaga `dead` zostaje na stałe. */
   private deathSoundPlayed = false;
   private victorySoundPlayed = false;
   /** Liczba zabójstw i trafień z poprzedniej klatki — z różnicy robimy dźwięk. */
   private lastSeenKills = 0;
   private lastSeenMobHitTick = -1;
+  private lastSeenDashTick = -1;
+  private lastSeenDashImpactTick = -1;
 
   /** Skrót do sprite'a lokalnego gracza — kamera i efekty czepiają się jego. */
   private get playerSprite(): Phaser.GameObjects.Image {
@@ -91,6 +114,7 @@ export class GameScene extends Phaser.Scene {
   private moveMarker!: Phaser.GameObjects.Arc;
   private rmbWasDown = false;
   private pickupSprites: Phaser.GameObjects.Image[] = [];
+  private minionSprites: Phaser.GameObjects.Image[] = [];
   private lastSeenPickupTick = -1;
   private lastSeenShieldTick = -1;
   private deathParticles!: Phaser.GameObjects.Particles.ParticleEmitter;
@@ -113,14 +137,16 @@ export class GameScene extends Phaser.Scene {
   private paused = false;
   private endScreenShown = false;
 
-  /** Tryb celowania (stan UI, nie symulacji): spacja włącza, LMB zatwierdza cios. */
-  private aiming = false;
-  private lmbWasDown = false;
+  /** Podgląd zasięgu skilla — świeci, gdy skill jest gotowy (quick cast). */
   private aimPreview!: Phaser.GameObjects.Graphics;
 
   private keys!: {
     m: Phaser.Input.Keyboard.Key;
     n: Phaser.Input.Keyboard.Key;
+    t: Phaser.Input.Keyboard.Key;
+    q: Phaser.Input.Keyboard.Key;
+    w: Phaser.Input.Keyboard.Key;
+    e: Phaser.Input.Keyboard.Key;
     r: Phaser.Input.Keyboard.Key;
     c: Phaser.Input.Keyboard.Key;
     space: Phaser.Input.Keyboard.Key;
@@ -136,8 +162,8 @@ export class GameScene extends Phaser.Scene {
     super('game');
   }
 
-  init(data: { classIndex?: number; coop?: CoopInit }): void {
-    this.cls = CLASSES[data.classIndex ?? 0];
+  init(data: { classId?: string; coop?: CoopInit }): void {
+    this.cls = classById(data.classId ?? DEFAULT_CLASS_ID) ?? CLASSES[0];
     this.coop = data.coop ?? null;
   }
 
@@ -149,7 +175,9 @@ export class GameScene extends Phaser.Scene {
       // Co-op: seed i skład drużyny pochodzą od hosta — wszyscy budują
       // identyczny świat. Bonusy meta ma na razie tylko gracz lokalny;
       // docelowo lobby prześle je razem ze składem.
-      const classes = this.coop.classIndexes.map((i) => CLASSES[i]);
+      // Nieznane id nie powinno tu dotrzeć (lobby odsiewa obce wersje gry),
+      // ale symulacja nie może wywalić się na danych z sieci.
+      const classes = this.coop.classIds.map((id) => classById(id) ?? CLASSES[0]);
       const bonuses = classes.map((_, i) =>
         i === this.coop!.localIndex ? metaBonusesFrom(save) : [],
       );
@@ -179,14 +207,24 @@ export class GameScene extends Phaser.Scene {
     }
     this.lastSeenSkillTicks = this.world.players.map(() => -1);
     this.announcedDrops = 0;
+    this.talentUi = [];
+    this.talentPanelOpen = false;
+    this.pendingTalentPick = -1;
+    this.pendingSkillCast = -1;
+    this.pendingDash = false;
+    this.talentUiSignature = '';
+    this.lastSeenLevel = 1;
     this.deathSoundPlayed = false;
     this.victorySoundPlayed = false;
     this.lastSeenKills = 0;
     this.lastSeenMobHitTick = -1;
+    this.lastSeenDashTick = -1;
+    this.lastSeenDashImpactTick = -1;
     this.accumulator = 0;
     this.lastSeenMeleeTick = -1;
     this.lastSeenHp = this.cls.maxHp;
     this.mobSprites = [];
+    this.minionSprites = [];
     this.projectileSprites = [];
 
     this.createTextures();
@@ -261,6 +299,13 @@ export class GameScene extends Phaser.Scene {
         this.add.image(0, 0, 'pickup').setVisible(false).setBlendMode(Phaser.BlendModes.ADD).setDepth(1),
       );
     }
+    // Sprite'y jednostek — pool o rozmiarze poola symulacji, zero alokacji
+    // w trakcie gry (ta sama zasada co przy mobkach).
+    for (let i = 0; i < this.world.minions.length; i++) {
+      this.minionSprites.push(
+        this.add.image(0, 0, minionTextureKey(MINIONS[0])).setVisible(false).setDepth(3),
+      );
+    }
 
     const cam = this.cameras.main;
     cam.setBounds(0, 0, C.WORLD_W, C.WORLD_H);
@@ -316,6 +361,11 @@ export class GameScene extends Phaser.Scene {
       m: kb.addKey(Phaser.Input.Keyboard.KeyCodes.M),
       // Wyciszenie pod N, bo M zajmuje dev-spawn mobków.
       n: kb.addKey(Phaser.Input.Keyboard.KeyCodes.N),
+      t: kb.addKey(Phaser.Input.Keyboard.KeyCodes.T),
+      // Skille: Q teraz, W/E/R w miarę projektowania kolejnych.
+      q: kb.addKey(Phaser.Input.Keyboard.KeyCodes.Q),
+      w: kb.addKey(Phaser.Input.Keyboard.KeyCodes.W),
+      e: kb.addKey(Phaser.Input.Keyboard.KeyCodes.E),
       r: kb.addKey(Phaser.Input.Keyboard.KeyCodes.R),
       c: kb.addKey(Phaser.Input.Keyboard.KeyCodes.C),
       space: kb.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE),
@@ -326,8 +376,6 @@ export class GameScene extends Phaser.Scene {
       three: kb.addKey(Phaser.Input.Keyboard.KeyCodes.THREE),
       four: kb.addKey(Phaser.Input.Keyboard.KeyCodes.FOUR),
     };
-    this.aiming = false;
-    this.lmbWasDown = false;
     this.paused = false;
     this.endScreenShown = false;
     this.pendingUpgradePick = -1;
@@ -352,6 +400,10 @@ export class GameScene extends Phaser.Scene {
     // promienia, inaczej sylwetka kłóci się z hitboxem (i tak było, dopóki
     // boss był jeden). Nowy boss nie wymaga tu już żadnej zmiany.
     for (const b of BOSSES) makeGlowPolygon(this, bossTextureKey(b), b.shapeSides, b.radius, 0);
+    // Jednostki sojusznicze — każda ma własną sylwetkę i rozmiar, jak bossy.
+    for (const m of MINIONS) {
+      makeGlowPolygon(this, minionTextureKey(m), m.shapeSides, m.radius, 0);
+    }
     makeGlowCircle(this, 'projectile', C.PROJECTILE_RADIUS);
     makeGlowCircle(this, 'spark', 3);
     // Item: romb (4 boki bez obrotu) — czytelnie inny od sylwetek wrogów.
@@ -407,18 +459,41 @@ export class GameScene extends Phaser.Scene {
     if (rmb && !this.rmbWasDown) this.flashMoveMarker(cursor.x, cursor.y);
     this.rmbWasDown = rmb;
 
-    // Celowanie skilla: spacja włącza/wyłącza (tylko gdy skill gotowy),
-    // LMB (świeże wciśnięcie) zatwierdza cios w kierunku kursora.
-    // W przerwie skill jest wyłączony — LMB służy do wyboru karty ulepszenia.
+    // QUICK CAST: klawisz odpala skill NATYCHMIAST w stronę kursora — bez
+    // trybu celowania. Wzorzec wybrany pod przyszłe W/E/R: przy czterech
+    // skillach „najpierw wyceluj, potem zatwierdź" byłoby nie do grania.
+    // W przerwie i przy otwartym drzewku skille są wyłączone.
     const inBreak = this.world.phase === 'break';
-    if (!inBreak && Phaser.Input.Keyboard.JustDown(this.keys.space) && this.me.skillCooldown <= 0) {
-      this.aiming = !this.aiming;
+    const uiBlocking = inBreak || this.talentPanelOpen;
+    // Pierwszy gotowy slot, którego klawisz właśnie wciśnięto (Q/W/E).
+    //
+    // Wciśnięcie ZAPAMIĘTUJEMY, zamiast używać od razu: `JustDown` jest
+    // prawdziwe tylko przez jedną klatkę, a tick symulacji wypada mniej
+    // więcej co drugą. Bez bufora połowa wciśnięć znikała bez śladu.
+    if (!uiBlocking) {
+      const skillKeys = [this.keys.q, this.keys.w, this.keys.e];
+      for (let i = 0; i < skillKeys.length; i++) {
+        if (
+          this.me.skillIds[i] &&
+          this.me.skillCooldowns[i] <= 0 &&
+          Phaser.Input.Keyboard.JustDown(skillKeys[i])
+        ) {
+          this.pendingSkillCast = i;
+          break;
+        }
+      }
     }
-    if (inBreak) this.aiming = false;
-    const lmb = pointer.leftButtonDown();
-    const confirmStrike = this.aiming && lmb && !this.lmbWasDown;
-    this.lmbWasDown = lmb;
-    if (confirmStrike) this.aiming = false;
+    const skillCast = uiBlocking ? -1 : this.pendingSkillCast;
+    // Spacja = doskok. Własny cooldown, więc nie konkuruje ze skillem.
+    // Doskok buforujemy tak samo jak skille — z tego samego powodu.
+    if (
+      !uiBlocking &&
+      Phaser.Input.Keyboard.JustDown(this.keys.space) &&
+      this.me.dashCooldown <= 0
+    ) {
+      this.pendingDash = true;
+    }
+    const dash = !uiBlocking && this.pendingDash;
 
     // Wybór ulepszenia: klik w kartę (ustawia pendingUpgradePick) albo klawisze 1-4.
     if (inBreak) {
@@ -427,18 +502,23 @@ export class GameScene extends Phaser.Scene {
         if (Phaser.Input.Keyboard.JustDown(numberKeys[i])) this.pendingUpgradePick = i;
       }
     }
+    // Wyborów NIE kasujemy tutaj — robi to `update()` po tym, jak symulacja
+    // je faktycznie skonsumowała (patrz komentarz przy `tickBefore`).
     const pick = this.pendingUpgradePick;
-    this.pendingUpgradePick = -1;
+    const talentPick = this.pendingTalentPick;
 
     return {
       targetX: cursor.x,
       targetY: cursor.y,
-      hasTarget: rmb,
-      attack: confirmStrike,
+      // Z otwartym panelem nie chodzimy — klik w talent nie ma przestawiać postaci.
+      hasTarget: rmb && !this.talentPanelOpen,
+      skillCast,
       aimX: cursor.x,
       aimY: cursor.y,
+      dash,
       debugSpawn: this.keys.m.isDown,
       upgradePick: pick,
+      talentPick,
     };
   }
 
@@ -453,9 +533,11 @@ export class GameScene extends Phaser.Scene {
 
     // Telegraf bossa — czytamy promień z aktualnie szykowanego ataku.
     const boss = w.boss;
-    if (boss && boss.state === 'windup') {
-      const bdef = BOSSES[boss.bossIndex];
-      const attack = bdef.phases[boss.phaseIndex].attacks[boss.attackIndex];
+    const bdef = boss ? BOSSES[boss.bossIndex] : undefined;
+    const attack = bdef?.phases[boss!.phaseIndex]?.attacks[boss!.attackIndex];
+    // Brak definicji = pomijamy telegraf bossa, ale telegrafy zwykłych
+    // wrogów niżej rysujemy normalnie.
+    if (boss && bdef && attack && boss.state === 'windup') {
       const radius =
         attack.kind === 'slam'
           ? attack.hitRadius
@@ -519,7 +601,14 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
+    // Bezpiecznik: gdyby indeks bossa był nieprawidłowy, NIE wolno rzucić
+    // wyjątkiem — wyjątek w renderze przerywa całą pętlę gry i wygląda dla
+    // gracza jak zawieszenie (tak właśnie objawiał się błąd z 2026-07-20).
     const def = BOSSES[boss.bossIndex];
+    if (!def) {
+      if (this.bossName.visible) this.bossName.setVisible(false);
+      return;
+    }
     const cam = this.cameras.main;
     const barW = Math.min(620, cam.width - 120);
     const barH = 16;
@@ -579,6 +668,202 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  /* ── Drzewko talentów ─────────────────────────────────────────────────── */
+
+  private clearTalentPanel(): void {
+    for (const o of this.talentUi) o.destroy();
+    this.talentUi = [];
+    this.talentUiSignature = '';
+  }
+
+  /**
+   * Panel przerysowujemy tylko, gdy stan drzewka faktycznie się zmienił —
+   * odbudowa kilkudziesięciu obiektów co klatkę zjadłaby FPS przy hordzie.
+   */
+  private refreshTalentPanel(): void {
+    if (!this.talentPanelOpen) return;
+    const me = this.me;
+    const signature = `${me.level}|${me.talentPoints}|${me.specIndex}|${me.talentRanks.join(',')}`;
+    if (signature === this.talentUiSignature) return;
+    this.talentUiSignature = signature;
+    this.buildTalentPanel();
+  }
+
+  private buildTalentPanel(): void {
+    for (const o of this.talentUi) o.destroy();
+    this.talentUi = [];
+
+    const cam = this.cameras.main;
+    const me = this.me;
+    const slots = talentSlotsFor(me.cls.id);
+    const branches = branchesFor(me.cls.id);
+
+    const add = <T extends Phaser.GameObjects.GameObject>(o: T): T => {
+      this.talentUi.push(o);
+      return o;
+    };
+
+    add(
+      this.add
+        .rectangle(cam.width / 2, cam.height / 2, cam.width, cam.height, 0x05070d, 0.82)
+        .setScrollFactor(0)
+        .setDepth(20),
+    );
+
+    const pts = me.talentPoints;
+    const mustPickSpec = me.specIndex < 0 && me.level >= PROGRESSION.specLevel;
+    add(
+      this.add
+        .text(
+          cam.width / 2, 44,
+          `${me.cls.name.toUpperCase()}   LEVEL ${me.level}/${PROGRESSION.maxLevel}` +
+            `   —   ${pts} point${pts === 1 ? '' : 's'} to spend`,
+          { fontFamily: 'monospace', fontSize: '22px', color: pts > 0 ? '#39ff14' : '#8899aa' },
+        )
+        .setOrigin(0.5).setScrollFactor(0).setDepth(21),
+    );
+    // Wybór specjalizacji jest nieodwracalny — komunikat musi to powiedzieć
+    // WPROST, zanim gracz kliknie, a nie dopiero po fakcie.
+    const hint = mustPickSpec
+      ? 'CHOOSE YOUR SPECIALIZATION — this locks the other branches for the whole run'
+      : me.specIndex < 0
+        ? `specialization unlocks at level ${PROGRESSION.specLevel}`
+        : 'T: close   —   spend deeper in a branch to unlock its lower rows';
+    add(
+      this.add
+        .text(cam.width / 2, 72, hint, {
+          fontFamily: 'monospace', fontSize: '13px',
+          color: mustPickSpec ? '#ffd166' : '#556677',
+        })
+        .setOrigin(0.5).setScrollFactor(0).setDepth(21),
+    );
+
+    const colW = Math.min(320, (cam.width - 60) / 3);
+    const startX = cam.width / 2 - colW;
+    const startY = 150;
+
+    branches.forEach((branch, bi) => {
+      const cx = startX + bi * colW;
+      const spent = me.spentPerBranch[bi] ?? 0;
+      // Po wyborze specjalizacji pozostałe gałęzie są zamknięte na cały run.
+      const branchClosed = me.specIndex >= 0 && me.specIndex !== bi;
+      const isMySpec = me.specIndex === bi;
+
+      add(
+        this.add
+          .text(cx, startY, branch.name, {
+            fontFamily: 'monospace', fontSize: '18px',
+            color: branch.comingSoon || branchClosed ? '#44505f' : isMySpec ? '#39ff14' : '#ffd166',
+          })
+          .setOrigin(0.5).setScrollFactor(0).setDepth(21),
+      );
+      add(
+        this.add
+          .text(
+            cx, startY + 22,
+            branch.comingSoon ? 'not designed yet'
+              : branchClosed ? 'LOCKED — other path chosen'
+                : isMySpec ? `YOUR PATH — ${spent} spent`
+                  : 'available',
+            { fontFamily: 'monospace', fontSize: '12px', color: branchClosed ? '#7a3b46' : '#667788' },
+          )
+          .setOrigin(0.5).setScrollFactor(0).setDepth(21),
+      );
+
+      branch.tiers.forEach((tier, ti) => {
+        const rowY = startY + 66 + ti * 92;
+        // Rząd specjalizacji ma inną regułę niż reszta: nie zależy od punktów
+        // w gałęzi, tylko od poziomu i tego, czy wybór już zapadł.
+        const tierLocked = tier.isSpec
+          ? me.specIndex >= 0 || me.level < PROGRESSION.specLevel
+          : branchClosed || spent < tier.requiresInBranch;
+
+        if (tier.isSpec) {
+          add(
+            this.add
+              .text(cx, rowY - 26, me.specIndex < 0 ? `SPECIALIZATION (level ${PROGRESSION.specLevel})` : '', {
+                fontFamily: 'monospace', fontSize: '11px', color: '#ffd166',
+              })
+              .setOrigin(0.5).setScrollFactor(0).setDepth(21),
+          );
+        } else if (tier.requiresInBranch > 0) {
+          add(
+            this.add
+              .text(cx, rowY - 26, `needs ${tier.requiresInBranch} in branch`, {
+                fontFamily: 'monospace', fontSize: '11px',
+                color: tierLocked ? '#aa4455' : '#33553f',
+              })
+              .setOrigin(0.5).setScrollFactor(0).setDepth(21),
+          );
+        }
+
+        tier.talents.forEach((def, k) => {
+          const index = slots.findIndex((s) => s.def.id === def.id);
+          const rank = me.talentRanks[index] ?? 0;
+          const maxed = rank >= def.maxRank;
+          const canBuy = !tierLocked && !maxed && me.talentPoints > 0;
+
+          const offset = tier.talents.length === 1 ? 0 : (k === 0 ? -72 : 72);
+          const x = cx + offset;
+
+          const stroke = maxed
+            ? (tier.isSpec ? 0x39ff14 : 0xffd166)
+            : tierLocked ? 0x333c48 : canBuy ? 0x39ff14 : 0x556677;
+          const box = this.add
+            // Rząd specjalizacji jest szerszy — mieści dłuższy opis i wizualnie
+            // odstaje od zwykłych talentów, bo to decyzja innej wagi.
+            .rectangle(x, rowY + 14, tier.isSpec ? 250 : 136, 62, tier.isSpec ? 0x111a2b : 0x0d1420)
+            .setStrokeStyle(2, stroke)
+            .setScrollFactor(0)
+            .setDepth(21);
+          add(box);
+
+          if (canBuy) {
+            box.setInteractive({ useHandCursor: true });
+            box.on('pointerdown', () => {
+              this.pendingTalentPick = index;
+            });
+          }
+
+          const dim = tierLocked ? '#4a5563' : '#ccddee';
+          add(
+            this.add
+              .text(x, rowY, def.name, {
+                fontFamily: 'monospace', fontSize: '12px', color: maxed ? '#ffd166' : dim,
+              })
+              .setOrigin(0.5).setScrollFactor(0).setDepth(22),
+          );
+          add(
+            this.add
+              .text(x, rowY + 17, def.desc, {
+                fontFamily: 'monospace', fontSize: tier.isSpec ? 9 : 10,
+                color: tierLocked ? '#3d4652' : '#8899aa',
+              })
+              .setOrigin(0.5).setScrollFactor(0).setDepth(22),
+          );
+          add(
+            this.add
+              .text(x, rowY + 33, tier.isSpec ? (rank > 0 ? 'CHOSEN' : 'choose') : `${rank}/${def.maxRank}`, {
+                fontFamily: 'monospace', fontSize: '12px',
+                color: maxed ? '#ffd166' : tierLocked ? '#3d4652' : '#39ff14',
+              })
+              .setOrigin(0.5).setScrollFactor(0).setDepth(22),
+          );
+        });
+      });
+
+      if (branch.comingSoon) {
+        add(
+          this.add
+            .text(cx, startY + 140, 'COMING\nSOON', {
+              fontFamily: 'monospace', fontSize: '16px', color: '#2e3742', align: 'center',
+            })
+            .setOrigin(0.5).setScrollFactor(0).setDepth(21),
+        );
+      }
+    });
+  }
+
   private showPickupText(def: (typeof ITEMS)[number]): void {
     const label = this.add
       .text(this.playerSprite.x, this.playerSprite.y - 26, def.name, {
@@ -608,10 +893,19 @@ export class GameScene extends Phaser.Scene {
     // Koniec runu: śmierć albo przetrwanie wszystkich fal.
     if (w.isRunOver) {
       this.showEndScreen();
-      if (this.keys.r.isDown) this.scene.restart({ classIndex: CLASSES.indexOf(this.cls) });
+      if (this.keys.r.isDown) this.scene.restart({ classId: this.cls.id });
       if (this.keys.c.isDown) this.scene.start('class-select');
       if (this.keys.l.isDown) this.scene.start('meta');
       return;
+    }
+
+    // Drzewko talentów (T). Nie zatrzymuje symulacji: w co-opie nie ma pauzy,
+    // a czekanie z awansami do przerwy oznaczałoby granie słabszą postacią.
+    if (Phaser.Input.Keyboard.JustDown(this.keys.t)) {
+      this.talentPanelOpen = !this.talentPanelOpen;
+      sfx.uiClick();
+      if (this.talentPanelOpen) this.buildTalentPanel();
+      else this.clearTalentPanel();
     }
 
     // Wyciszenie (N) działa też w pauzie — stąd sprawdzenie przed `return`.
@@ -631,6 +925,7 @@ export class GameScene extends Phaser.Scene {
     const waveBefore = w.wave;
     const input = this.sampleInput();
 
+    const tickBefore = w.tick;
     if (this.session) {
       // Co-op: to sesja decyduje, kiedy wolno wykonać tick — świat rusza
       // dopiero, gdy znane są wejścia wszystkich graczy.
@@ -640,10 +935,25 @@ export class GameScene extends Phaser.Scene {
       // Single-player: stały krok, nadganiamy ile się zmieściło w delcie.
       // Limit 250 ms chroni przed "spiralą śmierci" po uśpionej karcie.
       this.accumulator += Math.min(deltaMs, 250) / 1000;
+      let firstTick = true;
       while (this.accumulator >= C.TICK_DT) {
-        w.step([input]);
+        // Kliknięcia i wciśnięcia klawiszy liczą się TYLKO w pierwszym ticku
+        // klatki — inaczej jedno kliknięcie kupiłoby dwa talenty.
+        w.step([firstTick ? input : withoutOneShots(input)]);
+        firstTick = false;
         this.accumulator -= C.TICK_DT;
       }
+    }
+
+    // Wybory czyścimy DOPIERO gdy symulacja je faktycznie skonsumowała.
+    // Render chodzi szybciej niż symulacja, więc bez tego co druga klatka
+    // gubiła kliknięcie w talent albo w kartę ulepszenia — a gracz widział
+    // tylko to, że „czasem klik nie działa".
+    if (w.tick !== tickBefore) {
+      this.pendingUpgradePick = -1;
+      this.pendingTalentPick = -1;
+      this.pendingSkillCast = -1;
+      this.pendingDash = false;
     }
 
     // Reakcje na zmiany faz (UI żyje po stronie renderu, nie symulacji).
@@ -662,7 +972,15 @@ export class GameScene extends Phaser.Scene {
       sfx.waveStart();
     }
 
+    // Awans: krótki komunikat i dźwięk, żeby nie trzeba było patrzeć na HUD.
+    if (this.me.level > this.lastSeenLevel) {
+      this.lastSeenLevel = this.me.level;
+      this.showBanner(`LEVEL ${this.me.level}   [T] to spend`, 1600);
+      sfx.shield();
+    }
+
     this.renderWorld(this.accumulator / C.TICK_DT);
+    this.refreshTalentPanel();
     this.updateFogAndMinimap();
     this.updateHud();
     this.updateNetStatus();
@@ -818,7 +1136,7 @@ export class GameScene extends Phaser.Scene {
     save.stats.totalKills += me.kills;
     save.stats.bestKills = Math.max(save.stats.bestKills, me.kills);
     save.stats.bestWave = Math.max(save.stats.bestWave, victory ? WAVE_CONFIG.totalWaves : w.wave);
-    save.stats.lastClassIndex = CLASSES.indexOf(this.cls);
+    save.stats.lastClassId = this.cls.id;
     writeSave(save);
     return reward;
   }
@@ -831,6 +1149,11 @@ export class GameScene extends Phaser.Scene {
       const s = this.playerSprites[i];
       s.setPosition(Phaser.Math.Linear(p.prevX, p.x, alpha), Phaser.Math.Linear(p.prevY, p.y, alpha));
       s.setAlpha(p.dead ? 0.25 : 1);
+      // Skok: postać „urasta", bo jest nad areną i nietykalna — to musi być
+      // widać na pierwszy rzut oka, inaczej gracz nie wie, kiedy jest bezpieczny.
+      if (w.isAirborne(p)) s.setScale(1.35);
+      else if (p.dashTicksLeft > 0) s.setScale(1.12);
+      else s.setScale(1);
     });
     this.drawTeamBars();
     this.drawBossBar();
@@ -921,6 +1244,47 @@ export class GameScene extends Phaser.Scene {
 
     this.playCombatSounds();
 
+    // Doskok: smuga w miejscu startu + dźwięk. Bez tego dash „nie czuć".
+    if (me.lastDashTick !== this.lastSeenDashTick) {
+      this.lastSeenDashTick = me.lastDashTick;
+      if (me.lastDashTick >= 0) {
+        const jump = w.dashOf(me).passesObstacles;
+        const trail = this.add
+          .circle(this.playerSprite.x, this.playerSprite.y, jump ? 30 : 22, this.cls.color, 0.35)
+          .setDepth(4);
+        this.tweens.add({
+          targets: trail,
+          alpha: 0,
+          scale: jump ? 2.2 : 1.7,
+          duration: 260,
+          onComplete: () => trail.destroy(),
+        });
+        sfx.melee();
+      }
+    }
+
+    // Power Jump: fala uderzeniowa w miejscu lądowania. Rysowana w promieniu
+    // rażenia z definicji, więc zmiana liczby w DASHES od razu widać w grze.
+    if (me.lastDashImpactTick !== this.lastSeenDashImpactTick) {
+      this.lastSeenDashImpactTick = me.lastDashImpactTick;
+      if (me.lastDashImpactTick >= 0) {
+        const radius = w.dashImpactRadiusOf(me, w.dashOf(me));
+        const ring = this.add
+          .circle(this.playerSprite.x, this.playerSprite.y, radius * 0.4, this.cls.color, 0.28)
+          .setStrokeStyle(4, 0xffffff, 0.9)
+          .setDepth(6);
+        this.tweens.add({
+          targets: ring,
+          alpha: 0,
+          scale: 2.5,
+          duration: 300,
+          onComplete: () => ring.destroy(),
+        });
+        this.cameras.main.shake(140, 0.008);
+        sfx.skill();
+      }
+    }
+
     // Błysk pierścienia przy ataku (czysta kosmetyka — czyta stan, nic nie zmienia).
     if (me.lastMeleeTick !== this.lastSeenMeleeTick) {
       this.lastSeenMeleeTick = me.lastMeleeTick;
@@ -937,10 +1301,14 @@ export class GameScene extends Phaser.Scene {
       if (p.lastSkillTick === this.lastSeenSkillTicks[i]) return;
       this.lastSeenSkillTicks[i] = p.lastSkillTick;
       if (p.lastSkillTick < 0) return;
+      const skillDef = w.skillOf(p);
+      // Wachlarz rysujemy tylko dla ciosów; przywołania mają własny efekt.
+      if (!skillDef || skillDef.kind !== 'cone') return;
       const s = this.playerSprites[i];
-      const range = w.meleeRangeOf(p) * C.SKILL_RANGE_MULT;
+      const range = w.skillRangeOf(p);
       const angle = Math.atan2(p.lastSkillDirY, p.lastSkillDirX);
-      const half = Math.acos(C.SKILL_CONE_COS);
+      // Nova (`coneCos: -1`) to pełne koło — `acos` bez przycięcia dałby NaN.
+      const half = Math.acos(Math.max(-1, Math.min(1, skillDef.coneCos)));
       const cone = this.add.graphics().setDepth(5).setBlendMode(Phaser.BlendModes.ADD);
       cone
         .fillStyle(p.cls.color, 0.4)
@@ -959,6 +1327,40 @@ export class GameScene extends Phaser.Scene {
         sfx.skill();
       }
     });
+
+    // Sojusznicze jednostki: jaśniejsze i z obwódką, żeby w hordzie było
+    // od razu widać, co jest nasze, a co wroga.
+    for (let i = 0; i < w.minions.length; i++) {
+      const mi = w.minions[i];
+      const s = this.minionSprites[i];
+      if (!mi.alive) {
+        if (s.visible) s.setVisible(false);
+        continue;
+      }
+      const def = MINIONS[mi.defIndex];
+      const key = minionTextureKey(def);
+      if (!s.visible || s.texture.key !== key) s.setTexture(key).setVisible(true);
+      s.setTint(def.color);
+      s.setPosition(
+        Phaser.Math.Linear(mi.prevX, mi.x, alpha),
+        Phaser.Math.Linear(mi.prevY, mi.y, alpha),
+      );
+      // Zamach jednostki „puchnie" — ten sam język wizualny co u wrogów.
+      s.setScale(mi.state === 'windup' ? 1.2 : 1);
+      // Migotanie tuż przed zniknięciem: gracz wie, że totem zaraz wygaśnie.
+      s.setAlpha(mi.ttl > 0 && mi.ttl < 60 && Math.floor(mi.ttl / 5) % 2 === 0 ? 0.35 : 1);
+
+      // Duzi przywołańcy dostają pasek HP — tak samo jak koledzy z drużyny.
+      if (def.showHpBar && mi.maxHp > 0) {
+        const frac = Math.max(0, Math.min(1, mi.hp / mi.maxHp));
+        const barW = 46;
+        this.teamBars
+          .fillStyle(0x000000, 0.6)
+          .fillRect(s.x - barW / 2 - 1, s.y - def.radius - 13, barW + 2, 6)
+          .fillStyle(def.color, 1)
+          .fillRect(s.x - barW / 2, s.y - def.radius - 12, barW * frac, 4);
+      }
+    }
 
     // Itemy na ziemi: pulsują i migają, gdy zaraz znikną (ostatnie 3 s).
     for (let i = 0; i < w.pickups.length; i++) {
@@ -1003,19 +1405,27 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
-    // Podgląd celowania: półprzezroczysty stożek od gracza w stronę kursora.
-    if (this.aiming) {
+    // Podgląd zasięgu skilla — pokazuje się SAM, gdy skill jest gotowy.
+    // Przy quick caście to jedyna informacja o tym, gdzie trafi cios.
+    const previewSkill = w.skillOf(me);
+    if (
+      previewSkill?.kind === 'cone' && me.skillCooldowns[0] <= 0 &&
+      !this.talentPanelOpen && w.phase !== 'break'
+    ) {
       const pointer = this.input.activePointer;
       const cursor = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
       const angle = Math.atan2(cursor.y - this.playerSprite.y, cursor.x - this.playerSprite.x);
-      const half = Math.acos(C.SKILL_CONE_COS);
-      const range = this.world.meleeRangeOf(this.me) * C.SKILL_RANGE_MULT;
+      // `coneCos: -1` to atak dookoła (nova) — rysujemy pełne koło, nie stożek.
+      const half = Math.acos(Math.max(-1, Math.min(1, previewSkill.coneCos)));
+      const range = this.world.skillRangeOf(me);
       this.aimPreview
         .clear()
-        .fillStyle(this.cls.color, 0.15)
+        // Delikatniej niż dawny tryb celowania — teraz świeci non stop,
+        // więc nie może przykrywać tego, co się dzieje na arenie.
+        .fillStyle(this.cls.color, 0.07)
         .slice(this.playerSprite.x, this.playerSprite.y, range, angle - half, angle + half)
         .fillPath()
-        .lineStyle(2, this.cls.color, 0.6)
+        .lineStyle(2, this.cls.color, 0.28)
         .slice(this.playerSprite.x, this.playerSprite.y, range, angle - half, angle + half)
         .strokePath();
     } else if (this.aimPreview) {
@@ -1038,11 +1448,26 @@ export class GameScene extends Phaser.Scene {
   private updateHud(): void {
     const w = this.world;
     const me = this.me;
-    const skill = this.aiming
-      ? 'AIMING — LMB to strike'
-      : me.skillCooldown <= 0
-        ? 'SLASH ready [SPACE]'
-        : `SLASH ${(me.skillCooldown * C.TICK_DT).toFixed(1)}s`;
+    // Wszystkie obsadzone sloty na pasku — dzik-inżynier ma trzy naraz.
+    const skill = me.skillIds
+      .map((id, i) => {
+        if (!id) return '';
+        const def = w.skillOf(me, i);
+        if (!def) return '';
+        const cd = me.skillCooldowns[i];
+        return cd <= 0
+          ? `[${SKILL_KEYS[i]}] ${def.name}`
+          : `[${SKILL_KEYS[i]}] ${(cd * C.TICK_DT).toFixed(1)}s`;
+      })
+      .filter(Boolean)
+      .join('  ');
+    // Doskok ma własny cooldown, więc i własny wskaźnik — inaczej gracz nie
+    // wie, czy ucieczka jest dostępna.
+    const dashName = w.dashOf(me).name;
+    const dashState =
+      me.dashCooldown <= 0
+        ? `${dashName} ready [SPACE]`
+        : `${dashName} ${(me.dashCooldown * C.TICK_DT).toFixed(1)}s`;
     const shield = me.shieldCharges > 0 ? `  |  SHIELD ${me.shieldCharges}` : '';
     // Druga linia: statystyki zmienione przez itemy (pokazujemy tylko niezerowe).
     const stats: string[] = [];
@@ -1069,12 +1494,23 @@ export class GameScene extends Phaser.Scene {
         ? `  |  team ${w.livingPlayers.length}/${w.players.length}`
         : '';
 
+    // Nierozdane punkty wołają o uwagę — bez tego gracz gra słabszą postacią
+    // i nawet nie wie dlaczego.
+    const maxed = me.level >= PROGRESSION.maxLevel;
+    const lvl =
+      `LVL ${me.level}${maxed ? ' MAX' : ''}` +
+      (me.specIndex < 0 && me.level >= PROGRESSION.specLevel
+        ? '  ** CHOOSE SPECIALIZATION — [T] **'
+        : me.talentPoints > 0
+          ? `  ** ${me.talentPoints} TALENT POINT(S) — [T] **`
+          : '');
+
     this.hud.setText(
-      `${wavePart}  |  ${this.cls.name}  |  FPS ${Math.round(this.game.loop.actualFps)}  |  ` +
+      `${wavePart}  |  ${this.cls.name}  |  ${lvl}  |  FPS ${Math.round(this.game.loop.actualFps)}  |  ` +
         `mobs ${w.aliveMobs}  |  HP ${Math.round(me.hp)}/${w.maxHpOf(me)}  |  kills ${me.kills}${team}  |  ` +
-        `${skill}${shield}\n` +
+        `${skill}  |  ${dashState}${shield}\n` +
         `items ${me.totalItemsCollected}${stats.length ? '  |  ' + stats.join('  ') : ''}\n` +
-        `RMB: move   SPACE: aim slash   LMB: strike   ESC: pause   N: sound   hold M: dev spawn`,
+        `RMB: move   Q: slash   SPACE: ${dashName.toLowerCase()}   T: talents   ESC: pause   N: sound   hold M: dev spawn`,
     );
   }
 

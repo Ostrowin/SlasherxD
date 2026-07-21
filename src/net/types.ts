@@ -7,7 +7,7 @@ import type { SimInput } from '../sim/world';
  */
 export type NetMessage =
   /** „Jestem tu" — rozgłaszane przy wejściu do lobby. */
-  | { t: 'hello'; id: string; classIndex: number }
+  | { t: 'hello'; id: string; classId: string }
   /** Host rozsyła aktualny skład lobby (kolejność = indeksy graczy). */
   | { t: 'roster'; hostId: string; members: LobbyMember[] }
   /** Host startuje grę: wspólny seed przesądza o całym losowym świecie. */
@@ -33,7 +33,12 @@ export type NetMessage =
 
 export interface LobbyMember {
   id: string;
-  classIndex: number;
+  /**
+   * Tekstowe id klasy (`'mole'`), NIGDY indeks w CLASSES. Indeksy przesuwają
+   * się przy zmianie rosteru, więc dwie wersje gry dogadałyby się bez błędu
+   * i policzyły dwa różne światy — desync bez błędu w logice.
+   */
+  classId: string;
 }
 
 /**

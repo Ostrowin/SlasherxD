@@ -22,6 +22,8 @@ export interface SlamAttack {
   windupTicks: number;
   hitRadius: number;
   damage: number;
+  /** Siła odrzutu (px). Używane przez totem odpychający sojuszników. */
+  knockback?: number;
   recoverTicks: number;
 }
 

@@ -6,6 +6,16 @@ import { DROP_CONFIG, ITEM_CAPS, ITEMS, type ItemKind } from './itemsConfig';
 import { BOSS_WAVES, UPGRADES, WAVE_CONFIG, WAVE_DURATION_TICKS } from './wavesConfig';
 import { BOSSES, bossById, type BossAttack, type BossDef } from './bosses';
 import type { MetaEffectKind } from './metaConfig';
+import {
+  dashById, DEFAULT_SKILL_ID, skillById,
+  type DashDef, type SkillDef, type SummonSkill,
+} from './skillsConfig';
+import {
+  MINION_POOL_SIZE, MINIONS, minionById, type MinionDef,
+} from './minionsConfig';
+import {
+  branchesFor, PROGRESSION, talentSlotsFor, xpForLevel, xpPerWaveCleared,
+} from './talentsConfig';
 import * as C from './constants';
 
 /*
@@ -47,9 +57,19 @@ export interface SimInput {
    * (LMB po spacji); aimX/aimY = punkt świata, w którego KIERUNKU idzie cios.
    * Tryb celowania to stan UI (render), nie symulacji.
    */
-  attack: boolean;
+  /**
+   * Który slot umiejętności odpalić w tym ticku: 0=Q, 1=W, 2=E, -1 = żaden.
+   * Numer slotu zamiast flagi, bo klas z trzema skillami będzie coraz więcej
+   * (dzik-inżynier stawia trzy różne totemy).
+   */
+  skillCast: number;
   aimX: number;
   aimY: number;
+  /**
+   * Doskok (spacja) — kierunek bierzemy z `aimX/aimY`, czyli spod kursora.
+   * Osobne pole, bo dash ma własny cooldown niezależny od skilla.
+   */
+  dash: boolean;
   /** Dev-helper (klawisz M): natychmiastowy spawn 50 mobków do testu wydajności. */
   debugSpawn: boolean;
   /**
@@ -57,14 +77,32 @@ export interface SimInput {
    * albo -1 gdy jeszcze nie wybrał. Przerwa trwa, aż zdecydują WSZYSCY żywi.
    */
   upgradePick: number;
+  /**
+   * Zakup rangi talentu: indeks w `talentSlotsFor(klasa)` albo -1.
+   * Idzie przez input, a nie przez wywołanie metody z UI, bo w co-opie każdy
+   * klient musi wydać ten sam punkt w tym samym ticku — inaczej symulacje
+   * rozjadą się o statystyki gracza.
+   */
+  talentPick: number;
 }
 
 /** Pusty input — dla graczy, których dane jeszcze nie dotarły albo którzy padli. */
 export const EMPTY_INPUT: SimInput = {
   targetX: 0, targetY: 0, hasTarget: false,
-  attack: false, aimX: 0, aimY: 0,
-  debugSpawn: false, upgradePick: -1,
+  skillCast: -1, aimX: 0, aimY: 0,
+  dash: false, debugSpawn: false, upgradePick: -1, talentPick: -1,
 };
+
+/**
+ * Kopia wejścia z wyzerowanymi polami JEDNORAZOWYMI.
+ *
+ * Render pracuje w FPS przeglądarki, a symulacja w stałych tickach, więc
+ * w jednej klatce może zmieścić się kilka ticków. Bez tego jedno kliknięcie
+ * w talent albo jedno wciśnięcie klawisza zostałoby policzone dwa razy.
+ */
+export function withoutOneShots(input: SimInput): SimInput {
+  return { ...input, skillCast: -1, dash: false, upgradePick: -1, talentPick: -1 };
+}
 
 /** Faza runu — maszyna stanów struktury rozgrywki. */
 export type Phase = 'wave' | 'break' | 'victory';
@@ -129,8 +167,38 @@ export interface Mob {
   chargeDamage: number;
 }
 
+/**
+ * Sojusznicza jednostka: totem, wskrzeszony wróg, przywołaniec.
+ * Definicję zachowania trzyma `MinionDef` — tu jest tylko stan.
+ */
+export interface Minion {
+  alive: boolean;
+  /** Indeks w MINIONS. */
+  defIndex: number;
+  /** Indeks gracza-właściciela (dla nagród za zabójstwa). */
+  ownerIndex: number;
+  x: number;
+  y: number;
+  prevX: number;
+  prevY: number;
+  hp: number;
+  maxHp: number;
+  /** Ticki do zniknięcia; -1 = do końca fali. */
+  ttl: number;
+  attackCooldown: number;
+  state: 'idle' | 'windup' | 'recover';
+  stateTicks: number;
+  attackIndex: number;
+  spawnTick: number;
+}
+
 export interface Projectile {
   alive: boolean;
+  /**
+   * Pocisk sojuszniczy (z wieżyczek i totemów) trafia WROGÓW, nie graczy.
+   * Jedno pole zamiast osobnego poola — silnik lotu i kolizji jest ten sam.
+   */
+  friendly: boolean;
   x: number;
   y: number;
   prevX: number;
@@ -186,9 +254,32 @@ export interface Player {
   moveTargetY: number;
   hasMoveTarget: boolean;
 
+  /* ── Doskok (spacja) ────────────────────────────────────────────────── */
+  dashCooldown: number;
+  /** Ile ticków doskoku zostało (0 = stoi na ziemi). */
+  dashTicksLeft: number;
+  dashVX: number;
+  dashVY: number;
+  /** Tick startu doskoku — render rysuje z tego smugę. */
+  lastDashTick: number;
+  /** Tick uderzenia przy lądowaniu (Power Jump) — render rysuje falę. */
+  lastDashImpactTick: number;
+
+  /** Umiejętności w slotach Q/W/E — talent specjalizacji je podmienia. */
+  skillIds: string[];
+  /** Cooldown każdego slotu osobno. */
+  skillCooldowns: number[];
+  /** Wariant doskoku spod spacji — również podmienialny talentem. */
+  dashId: string;
+  /** Który wariant doskoku jest AKTUALNIE w locie (Q może odpalić inny). */
+  activeDashId: string;
+  /** Mnożnik promienia fali uderzeniowej — skalowany talentami skoczka. */
+  impactRadiusMult: number;
+  /** Wybrana specjalizacja: indeks gałęzi drzewka (-1 = jeszcze nie wybrał). */
+  specIndex: number;
+
   meleeCooldown: number;
   lastMeleeTick: number;
-  skillCooldown: number;
   lastSkillTick: number;
   lastSkillDirX: number;
   lastSkillDirY: number;
@@ -208,6 +299,26 @@ export interface Player {
   knockbackMult: number;
   thornsDamage: number;
   dropChanceBonus: number;
+  /**
+   * Promień wskrzeszania (hiena nekromantka). Wróg zabity bliżej niż tyle
+   * wstaje po naszej stronie. 0 = brak.
+   */
+  raiseRadius: number;
+  /**
+   * Skalowanie sojuszniczych jednostek. Buildy przywoływaczy rosną przez te
+   * mnożniki, a nie przez obrażenia własne gracza — inaczej specjalizacja,
+   * w której `Q` nie zadaje obrażeń, byłaby ślepą uliczką.
+   */
+  minionDamageMult: number;
+  minionHpMult: number;
+  minionDurationMult: number;
+  minionCountBonus: number;
+  /** Szansa na trafienie krytyczne w procentach (0-100). */
+  critChance: number;
+  /** Mnożnik obrażeń krytycznych — bazowo 2x, rośnie od itemów i talentów. */
+  critDamageMult: number;
+  /** Tick ostatniego kryta — render robi z tego błysk liczby. */
+  lastCritTick: number;
 
   /** Statystyki i historia — podsumowanie runu. */
   kills: number;
@@ -221,6 +332,19 @@ export interface Player {
   upgradeChoices: number[];
   /** Czy gracz podjął już decyzję w tej przerwie. */
   hasPickedThisBreak: boolean;
+
+  /* ── Progresja w runie (gdd.md 5.8) — znika razem z runem ──────────── */
+  level: number;
+  /** Exp w kierunku NASTĘPNEGO poziomu (nie suma od początku runu). */
+  xp: number;
+  /** Nierozdane punkty talentów. */
+  talentPoints: number;
+  /** Rangi talentów, indeksowane jak `talentSlotsFor(klasa)`. */
+  talentRanks: number[];
+  /** Punkty wydane w każdej gałęzi — z tego wynika dostęp do głębszych rzędów. */
+  spentPerBranch: number[];
+  /** Tick ostatniego awansu — render robi z tego błysk i dźwięk. */
+  lastLevelUpTick: number;
 }
 
 export class World {
@@ -232,6 +356,8 @@ export class World {
   /** Poole o stałym rozmiarze — zero alokacji w trakcie gry. */
   readonly mobs: Mob[] = [];
   readonly projectiles: Projectile[] = [];
+  /** Sojusznicze jednostki (totemy, wskrzeszeni, przywołańcy). */
+  readonly minions: Minion[] = [];
   readonly pickups: Pickup[] = [];
   /** Przeszkody wygenerowane z seeda w konstruktorze — stałe przez cały run. */
   readonly obstacles: Obstacle[] = [];
@@ -247,6 +373,15 @@ export class World {
   bossMobIndex = -1;
   /** HP startowe bossa — render rysuje z tego pasek. */
   bossMaxHp = 0;
+  /**
+   * Boss tej fali został pokonany.
+   *
+   * Osobna flaga, bo `bossMobIndex` jest zerowany w chwili śmierci: pool
+   * mobków natychmiast oddaje zwolniony slot nowemu wrogowi, a wskaźnik
+   * na stary slot sprawiał, że świat brał przypadkowego aliena za bossa
+   * (`BOSSES[-1]` → wyjątek w renderze i fala, która nigdy się nie kończy).
+   */
+  bossDefeated = false;
   /** Tick ostatniej zmiany fazy bossa i jej komunikat (dla renderu). */
   bossPhaseTick = -1;
   bossPhaseAnnounce = '';
@@ -315,7 +450,15 @@ export class World {
     }
     for (let i = 0; i < C.PROJECTILE_CAP; i++) {
       this.projectiles.push({
-        alive: false, x: 0, y: 0, prevX: 0, prevY: 0, vx: 0, vy: 0, ttl: 0, damage: 0,
+        alive: false, friendly: false,
+        x: 0, y: 0, prevX: 0, prevY: 0, vx: 0, vy: 0, ttl: 0, damage: 0,
+      });
+    }
+    for (let i = 0; i < MINION_POOL_SIZE; i++) {
+      this.minions.push({
+        alive: false, defIndex: 0, ownerIndex: 0,
+        x: 0, y: 0, prevX: 0, prevY: 0, hp: 0, maxHp: 0, ttl: 0,
+        attackCooldown: 0, state: 'idle', stateTicks: 0, attackIndex: 0, spawnTick: 0,
       });
     }
     for (let i = 0; i < DROP_CONFIG.maxGroundItems; i++) {
@@ -332,16 +475,99 @@ export class World {
       hp: cls.maxHp, dead: false, left: false, hurtCooldown: 0,
       facingX: 1, facingY: 0,
       moveTargetX: 0, moveTargetY: 0, hasMoveTarget: false,
+      skillIds: [DEFAULT_SKILL_ID, '', ''],
+      activeDashId: cls.dashId, impactRadiusMult: 1,
+      skillCooldowns: [0, 0, 0],
+      dashId: cls.dashId, specIndex: -1,
+      dashCooldown: 0, dashTicksLeft: 0, dashVX: 0, dashVY: 0, lastDashTick: -1, lastDashImpactTick: -1,
       meleeCooldown: cls.meleeIntervalTicks, lastMeleeTick: -1,
-      skillCooldown: 0, lastSkillTick: -1, lastSkillDirX: 1, lastSkillDirY: 0,
+      lastSkillTick: -1, lastSkillDirX: 1, lastSkillDirY: 0,
       armorFlat: 0, speedMult: 1, attackSpeedMult: 1, rangeMult: 1, damageMult: 1,
       shieldCharges: 0, regenPerSec: 0, maxHpBonus: 0, cooldownMult: 1,
       leechHealPerKill: 0, magnetBonus: 0, knockbackMult: 1, thornsDamage: 0,
-      dropChanceBonus: 0,
+      dropChanceBonus: 0, raiseRadius: 0,
+      minionDamageMult: 1, minionHpMult: 1, minionDurationMult: 1, minionCountBonus: 0,
+      critChance: 0, critDamageMult: 2, lastCritTick: -1,
       kills: 0, itemCounts: ITEMS.map(() => 0), totalItemsCollected: 0,
       lastPickupTick: -1, lastPickupDefIndex: -1, lastShieldTick: -1,
       pickedUpgrades: [], upgradeChoices: [], hasPickedThisBreak: false,
+      level: 1, xp: 0, talentPoints: 0,
+      talentRanks: talentSlotsFor(cls.id).map(() => 0),
+      spentPerBranch: branchesFor(cls.id).map(() => 0),
+      lastLevelUpTick: -1,
     };
+  }
+
+  /* ── Progresja w runie ────────────────────────────────────────────────── */
+
+  /** Ile expa daje ukończona fala — wyliczane z długości runu (talentsConfig). */
+  private get waveXp(): number {
+    return xpPerWaveCleared(WAVE_CONFIG.totalWaves);
+  }
+
+  /**
+   * Dopisuje exp i rozlicza awanse. Po osiągnięciu maksimum exp przestaje się
+   * liczyć — nie ma sensu zbierać go „na zapas", bo run i tak zaraz się kończy.
+   */
+  private gainXp(p: Player, amount: number): void {
+    if (p.dead || p.level >= PROGRESSION.maxLevel) return;
+    p.xp += amount;
+    while (p.level < PROGRESSION.maxLevel && p.xp >= xpForLevel(p.level + 1)) {
+      p.xp -= xpForLevel(p.level + 1);
+      p.level++;
+      p.talentPoints++;
+      p.lastLevelUpTick = this.tick;
+    }
+    if (p.level >= PROGRESSION.maxLevel) p.xp = 0;
+  }
+
+  /**
+   * Zakup jednej rangi talentu. Walidujemy WSZYSTKO, bo indeks przychodzi
+   * z inputu: zły punkt kupiony u jednego gracza to rozjazd symulacji.
+   */
+  private trySpendTalent(p: Player, index: number): void {
+    if (p.dead || p.talentPoints <= 0) return;
+    const slots = talentSlotsFor(p.cls.id);
+    if (index < 0 || index >= slots.length) return;
+
+    const slot = slots[index];
+    if (p.talentRanks[index] >= slot.def.maxRank) return;
+
+    if (slot.isSpec) {
+      // Specjalizację wybiera się RAZ na run i dopiero od ustalonego poziomu.
+      if (p.specIndex >= 0) return;
+      if (p.level < PROGRESSION.specLevel) return;
+      p.specIndex = slot.branchIndex;
+    } else {
+      // Poza specjalizacją nie wolno wydawać punktów: pozostałe gałęzie są
+      // zamknięte, a przed wyborem nie ma w co inwestować. To wymusza
+      // decyzję o kierunku postaci na 2. poziomie.
+      if (p.specIndex !== slot.branchIndex) return;
+      // Głębsze rzędy wymagają wcześniejszego wejścia w tę samą gałąź.
+      if (p.spentPerBranch[slot.branchIndex] < slot.requiresInBranch) return;
+    }
+
+    // Talent może obsadzić SLOTY umiejętności (Q/W/E) — na tym polega gałąź
+    // zmieniająca zachowanie. Dzik-inżynier dostaje od razu trzy totemy,
+    // snajper podmienia samo Q; ten sam mechanizm obsługuje oba przypadki.
+    if (slot.def.grantsSkills) {
+      slot.def.grantsSkills.forEach((id, i) => {
+        if (!id || i >= p.skillIds.length) return;
+        p.skillIds[i] = id;
+        // Nowa umiejętność ma własny cooldown; nie przenosimy starego.
+        p.skillCooldowns[i] = 0;
+      });
+    }
+    if (slot.def.grantsDash) {
+      p.dashId = slot.def.grantsDash;
+      p.dashCooldown = 0;
+    }
+
+    p.talentRanks[index]++;
+    p.spentPerBranch[slot.branchIndex]++;
+    p.talentPoints--;
+    // Ta sama ścieżka co itemy, karty z przerwy i LAB — jedna implementacja efektów.
+    this.applyEffect(p, slot.def.kind, slot.def.valuePerRank);
   }
 
   /* ── Statystyki efektywne (baza klasy + modyfikatory) ─────────────────── */
@@ -364,8 +590,23 @@ export class World {
       Math.round(p.cls.meleeIntervalTicks / p.attackSpeedMult),
     );
   }
-  skillCooldownTicksOf(p: Player): number {
-    return Math.round(C.SKILL_COOLDOWN_TICKS * p.cooldownMult);
+  /** Definicja umiejętności w slocie (0=Q, 1=W, 2=E); null gdy slot pusty. */
+  skillOf(p: Player, slot = 0): SkillDef | null {
+    const id = p.skillIds[slot];
+    return id ? skillById(id) : null;
+  }
+  /** Definicja doskoku spod spacji — drugi slot umiejętności, też podmienialny. */
+  dashOf(p: Player): DashDef {
+    return dashById(p.dashId);
+  }
+  skillCooldownTicksOf(p: Player, slot = 0): number {
+    const skill = this.skillOf(p, slot);
+    return skill ? Math.round(skill.cooldownTicks * p.cooldownMult) : 0;
+  }
+  /** Zasięg umiejętności stożkowej — render rysuje z tego podgląd. */
+  skillRangeOf(p: Player, slot = 0): number {
+    const skill = this.skillOf(p, slot);
+    return skill && skill.kind === 'cone' ? this.meleeRangeOf(p) * skill.rangeMult : 0;
   }
   pickupRadiusOf(p: Player): number {
     return DROP_CONFIG.pickupRadiusBase + p.magnetBonus;
@@ -436,6 +677,13 @@ export class World {
 
     const inputOf = (p: Player): SimInput => inputs[p.index] ?? EMPTY_INPUT;
 
+    // Talenty wydaje się kiedy się chce — także w środku fali. W co-opie nie
+    // ma pauzy, więc czekanie na przerwę oznaczałoby granie bez awansów.
+    for (const p of this.players) {
+      const pick = inputOf(p).talentPick;
+      if (pick >= 0) this.trySpendTalent(p, pick);
+    }
+
     if (this.phase === 'break') {
       this.stepBreak(inputOf);
       return;
@@ -448,6 +696,7 @@ export class World {
     this.spawnMobs(this.players.some((p) => !p.dead && inputOf(p).debugSpawn));
     this.rebuildHash();
     this.moveMobsAndAttack();
+    this.stepMinions();
     this.stepProjectiles();
     for (const p of this.players) {
       if (p.dead) continue;
@@ -462,7 +711,7 @@ export class World {
 
     // Fala z bossem nie kończy się na czas — trwa, dopóki boss żyje.
     if (this.isBossWave) {
-      if (this.bossMobIndex >= 0 && !this.boss) this.endWave();
+      if (this.bossDefeated) this.endWave();
       return;
     }
     this.waveTicksLeft--;
@@ -509,6 +758,13 @@ export class World {
     if (WAVE_CONFIG.clearMobsBetweenWaves) {
       for (let i = 0; i < this.mobs.length; i++) this.mobs[i].alive = false;
       for (let i = 0; i < this.projectiles.length; i++) this.projectiles[i].alive = false;
+      // Jednostki znikają razem z falą — inaczej totemy przechodziłyby przez
+      // przerwę i pierwsza fala po niej byłaby darmowa. WYJĄTEK: jednostki
+      // wieczne (Behemot) zostają, bo w ich przypadku „wieczny" ma znaczyć
+      // wieczny, a nie „do końca fali". Giną wyłącznie od obrażeń.
+      for (let i = 0; i < this.minions.length; i++) {
+        if (this.minions[i].ttl >= 0) this.minions[i].alive = false;
+      }
       this.aliveMobs = 0;
       for (let i = 0; i < this.aliveByType.length; i++) this.aliveByType[i] = 0;
     }
@@ -519,6 +775,9 @@ export class World {
     }
     this.phase = 'break';
     for (const p of this.players) {
+      // Exp za falę dostają wszyscy żywi — także ci, którym słabo poszło.
+      // To ta część progresji, która nie zależy od liczby zabójstw.
+      this.gainXp(p, this.waveXp);
       p.hasPickedThisBreak = p.dead;
       p.upgradeChoices = [];
       if (!p.dead) this.rollUpgradeChoices(p);
@@ -559,6 +818,7 @@ export class World {
     // Nowa fala = nowy boss (albo jego brak).
     this.bossMobIndex = -1;
     this.bossMaxHp = 0;
+    this.bossDefeated = false;
     for (const p of this.players) {
       p.upgradeChoices = [];
       p.hasPickedThisBreak = false;
@@ -640,7 +900,167 @@ export class World {
     }
   }
 
+  /**
+   * Doskok spod spacji. Wariant opisują DANE (`DASHES` w skillsConfig.ts),
+   * a talent może go podmienić — tak samo jak umiejętność spod Q.
+   *
+   * Zwraca `true`, jeśli w tym ticku ruch został już obsłużony i normalne
+   * chodzenie ma zostać pominięte.
+   */
+  /**
+   * Rozpoczyna doskok wskazanym wariantem. Wyodrębnione, bo doskok odpala
+   * się z DWÓCH miejsc: spacji i skoku bojowego (`LeapSkill`), który może
+   * użyć innego wariantu niż ten spod spacji.
+   */
+  private startDash(p: Player, dash: DashDef, dirX: number, dirY: number): void {
+    const speed = dash.distance / (dash.durationTicks * C.TICK_DT);
+    p.dashVX = dirX * speed;
+    p.dashVY = dirY * speed;
+    p.dashTicksLeft = dash.durationTicks;
+    // Zapamiętujemy, KTÓRY wariant leci — inaczej skok z `Q` byłby w locie
+    // liczony parametrami doskoku spod spacji.
+    p.activeDashId = dash.id;
+    p.lastDashTick = this.tick;
+    p.facingX = dirX;
+    p.facingY = dirY;
+    // Doskok to świadome przestawienie się — stary cel ruchu przestaje
+    // obowiązywać, inaczej postać od razu wracałaby tam, skąd skoczyła.
+    p.hasMoveTarget = false;
+  }
+
+  /** Duży wróg na trasie doskoku (null = droga wolna). */
+  private bigMobOnPath(x: number, y: number, minRadius: number): Mob | null {
+    let hit: Mob | null = null;
+    this.hash.forEachNear(x, y, C.MOB_RADIUS_MAX + C.PLAYER_RADIUS, (i) => {
+      if (hit) return;
+      const m = this.mobs[i];
+      if (!m.alive) return;
+      const r = m.bossIndex >= 0 ? BOSSES[m.bossIndex].radius : ENEMIES[m.defIndex].radius;
+      if (r < minRadius) return;
+      const reach = r + C.PLAYER_RADIUS;
+      const dx = m.x - x;
+      const dy = m.y - y;
+      if (dx * dx + dy * dy <= reach * reach) hit = m;
+    });
+    return hit;
+  }
+
+  private stepDash(p: Player, input: SimInput): boolean {
+    if (p.dashCooldown > 0) p.dashCooldown--;
+
+    // Start doskoku: kierunek spod kursora, a jak kursor jest na graczu —
+    // to w stronę, w którą patrzy (żeby spacja nigdy nie „nie zadziałała").
+    if (input.dash && p.dashTicksLeft <= 0 && p.dashCooldown <= 0) {
+      const equipped = this.dashOf(p);
+      let dx = input.aimX - p.x;
+      let dy = input.aimY - p.y;
+      const d = Math.sqrt(dx * dx + dy * dy);
+      if (d < 1) {
+        dx = p.facingX;
+        dy = p.facingY;
+      } else {
+        dx /= d;
+        dy /= d;
+      }
+      this.startDash(p, equipped, dx, dy);
+      p.dashCooldown = equipped.cooldownTicks;
+    }
+
+    if (p.dashTicksLeft <= 0) return false;
+
+    // W locie obowiązuje wariant, którym doskok wystartował.
+    const dash = dashById(p.activeDashId);
+    p.dashTicksLeft--;
+    const nx = p.x + p.dashVX * C.TICK_DT;
+    const ny = p.y + p.dashVY * C.TICK_DT;
+
+    if (dash.passesObstacles) {
+      // Skok ignoruje przeszkody — liczą się tylko granice areny.
+      p.x = Math.min(Math.max(nx, C.PLAYER_RADIUS), C.WORLD_W - C.PLAYER_RADIUS);
+      p.y = Math.min(Math.max(ny, C.PLAYER_RADIUS), C.WORLD_H - C.PLAYER_RADIUS);
+    } else {
+      // Dash po ziemi: wejście w przeszkodę ucina doskok w miejscu zderzenia.
+      const pushed = this.pushOutOfObstacles(nx, ny, C.PLAYER_RADIUS);
+      if (pushed.x !== nx || pushed.y !== ny) p.dashTicksLeft = 0;
+      p.x = Math.min(Math.max(pushed.x, C.PLAYER_RADIUS), C.WORLD_W - C.PLAYER_RADIUS);
+      p.y = Math.min(Math.max(pushed.y, C.PLAYER_RADIUS), C.WORLD_H - C.PLAYER_RADIUS);
+    }
+
+    // Wielki wróg zatrzymuje doskok — nad terenem przeskoczysz, nad Brutem
+    // czy bossem już nie. Ulepszony doskok przy okazji w niego uderza.
+    if (dash.bounceMobRadius > 0) {
+      const big = this.bigMobOnPath(p.x, p.y, dash.bounceMobRadius);
+      if (big) {
+        p.dashTicksLeft = 0;
+        // Odbicie: cofamy się kawałek, żeby nie utknąć w jego hitboksie.
+        const bx = p.x - big.x;
+        const by = p.y - big.y;
+        const bd = Math.sqrt(bx * bx + by * by) || 1;
+        const push = C.PLAYER_RADIUS + 4;
+        p.x = Math.min(Math.max(p.x + (bx / bd) * push, C.PLAYER_RADIUS), C.WORLD_W - C.PLAYER_RADIUS);
+        p.y = Math.min(Math.max(p.y + (by / bd) * push, C.PLAYER_RADIUS), C.WORLD_H - C.PLAYER_RADIUS);
+      }
+    }
+
+    // Lądowanie. Uderzenie liczymy w ticku, w którym doskok się KOŃCZY —
+    // także gdy urwała go przeszkoda albo wielki wróg, więc odbicie boli.
+    if (p.dashTicksLeft <= 0 && dash.impactRadius > 0) this.dashImpact(p, dash);
+    return true;
+  }
+
+  /**
+   * Uderzenie w miejscu lądowania (Power Jump). Osobna metoda, bo to jest
+   * prymityw do wielokrotnego użytku: każdy kolejny doskok z obrażeniami
+   * dostaje go za darmo, wystarczy wpisać liczby w `DASHES`.
+   */
+  private dashImpact(p: Player, dash: DashDef): void {
+    p.lastDashImpactTick = this.tick;
+    const damage = this.meleeDamageOf(p) * dash.impactDamageMult;
+    const knockback = dash.impactKnockback * p.knockbackMult;
+    // Promień skalowany talentami — to główna oś wzrostu buildu skoczka.
+    const radius = this.dashImpactRadiusOf(p, dash);
+
+    this.hash.forEachNear(p.x, p.y, radius + C.MOB_RADIUS_MAX, (i) => {
+      const m = this.mobs[i];
+      if (!m.alive) return;
+      const reach = radius + ENEMIES[m.defIndex].radius;
+      const dx = m.x - p.x;
+      const dy = m.y - p.y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 > reach * reach) return;
+
+      m.hp -= this.rollDamage(p, damage);
+      m.lastHitTick = this.tick;
+      if (m.hp <= 0) {
+        this.killMob(m, p);
+        return;
+      }
+      if (m.bossIndex >= 0) return;
+      const d = Math.sqrt(d2) || 1;
+      const kb = this.pushOutOfObstacles(
+        m.x + (dx / d) * knockback,
+        m.y + (dy / d) * knockback,
+        ENEMIES[m.defIndex].radius,
+      );
+      m.x = Math.min(Math.max(kb.x, C.MOB_RADIUS), C.WORLD_W - C.MOB_RADIUS);
+      m.y = Math.min(Math.max(kb.y, C.MOB_RADIUS), C.WORLD_H - C.MOB_RADIUS);
+    });
+  }
+
+  /** Promień fali uderzeniowej po ulepszeniach — render rysuje z tego okrąg. */
+  dashImpactRadiusOf(p: Player, dash: DashDef): number {
+    return dash.impactRadius * p.impactRadiusMult;
+  }
+
+  /** Czy gracz jest w powietrzu — w skoku nie da się go trafić. */
+  isAirborne(p: Player): boolean {
+    return p.dashTicksLeft > 0 && dashById(p.activeDashId).invulnerable;
+  }
+
   private movePlayer(p: Player, input: SimInput): void {
+    // Doskok ma pierwszeństwo przed chodzeniem do celu.
+    if (this.stepDash(p, input)) return;
+
     // Nowy cel z RMB (klik lub trzymanie) — cel przycięty do granic świata.
     if (input.hasTarget) {
       p.moveTargetX = Math.min(Math.max(input.targetX, C.PLAYER_RADIUS), C.WORLD_W - C.PLAYER_RADIUS);
@@ -755,7 +1175,9 @@ export class World {
 
     // Boss pojawia się raz, na początku swojej fali.
     const bossId = BOSS_WAVES[this.wave];
-    if (bossId && this.bossMobIndex < 0) this.spawnBoss(bossId);
+    // `bossDefeated` chroni przed ponownym przyzwaniem tego samego bossa
+    // po jego śmierci — bez tego wyzerowany `bossMobIndex` byłby zaproszeniem.
+    if (bossId && this.bossMobIndex < 0 && !this.bossDefeated) this.spawnBoss(bossId);
 
     const elapsedSeconds = this.tick * C.TICK_DT;
     // Liczba wrogów rośnie z falą ORAZ z liczbą graczy — inaczej co-op byłby
@@ -1100,7 +1522,9 @@ export class World {
   }
 
   /** Wspólny spawner pocisków — używany przez magów i ataki bossów. */
-  private spawnProjectile(x: number, y: number, vx: number, vy: number, damage: number): void {
+  private spawnProjectile(
+    x: number, y: number, vx: number, vy: number, damage: number, friendly = false,
+  ): void {
     for (let i = 0; i < this.projectiles.length; i++) {
       const p = this.projectiles[i];
       if (p.alive) continue;
@@ -1113,6 +1537,7 @@ export class World {
       p.vy = vy;
       p.ttl = C.PROJECTILE_TTL_TICKS;
       p.damage = damage;
+      p.friendly = friendly;
       return;
     }
   }
@@ -1158,6 +1583,26 @@ export class World {
         p.alive = false;
         continue;
       }
+      if (p.friendly) {
+        // Pocisk sojuszniczy: szuka WROGA. Właściciela pocisku nie śledzimy —
+        // zabójstwo przypisujemy graczowi 0 tylko dla statystyk, bo liczy się
+        // to, że wróg ginie, a nie kto zapisze sobie punkt.
+        this.hash.forEachNear(p.x, p.y, C.PROJECTILE_RADIUS + C.MOB_RADIUS_MAX, (mi) => {
+          if (!p.alive) return;
+          const m = this.mobs[mi];
+          if (!m.alive) return;
+          const reach = C.PROJECTILE_RADIUS + ENEMIES[m.defIndex].radius;
+          const dx = p.x - m.x;
+          const dy = p.y - m.y;
+          if (dx * dx + dy * dy > reach * reach) return;
+          p.alive = false;
+          m.hp -= p.damage;
+          m.lastHitTick = this.tick;
+          if (m.hp <= 0) this.killMob(m, this.players[0]);
+        });
+        continue;
+      }
+
       // Pocisk trafia pierwszego gracza na drodze.
       for (const pl of this.players) {
         if (pl.dead) continue;
@@ -1183,7 +1628,7 @@ export class World {
     p.lastMeleeTick = this.tick;
 
     const range = this.meleeRangeOf(p);
-    const damage = this.meleeDamageOf(p);
+    const baseMeleeDamage = this.meleeDamageOf(p);
     this.hash.forEachNear(p.x, p.y, range + C.MOB_RADIUS_MAX, (i) => {
       const m = this.mobs[i];
       if (!m.alive) return;
@@ -1191,7 +1636,7 @@ export class World {
       const dx = m.x - p.x;
       const dy = m.y - p.y;
       if (dx * dx + dy * dy > reach * reach) return;
-      m.hp -= damage;
+      m.hp -= this.rollDamage(p, baseMeleeDamage);
       m.lastHitTick = this.tick;
       if (m.hp <= 0) this.killMob(m, p);
     });
@@ -1201,9 +1646,27 @@ export class World {
    * Power Slash — aktywny skill hybrydy z celowaniem: spacja otwiera celowanie
    * (UI), LMB zatwierdza — cios idzie stożkiem 120° w kierunku punktu aim.
    */
+  /**
+   * Rzut na trafienie krytyczne — jedyne miejsce, w którym gracz zadaje
+   * obrażenia „przez losowanie". Losowość idzie z seedowanego RNG symulacji,
+   * więc w co-opie każdy klient wylosuje ten sam kryt w tym samym ticku.
+   */
+  private rollDamage(p: Player, base: number): number {
+    if (p.critChance <= 0) return base;
+    if (this.rng.next() * 100 >= p.critChance) return base;
+    p.lastCritTick = this.tick;
+    return base * p.critDamageMult;
+  }
+
   private applySkill(p: Player, input: SimInput): void {
-    if (p.skillCooldown > 0) p.skillCooldown--;
-    if (!input.attack || p.skillCooldown > 0) return;
+    for (let i = 0; i < p.skillCooldowns.length; i++) {
+      if (p.skillCooldowns[i] > 0) p.skillCooldowns[i]--;
+    }
+
+    const slot = input.skillCast;
+    if (slot < 0 || slot >= p.skillIds.length) return;
+    const skill = this.skillOf(p, slot);
+    if (!skill || p.skillCooldowns[slot] > 0) return;
 
     // Kierunek ciosu: od gracza do punktu celowania; fallback = kierunek patrzenia.
     let dirX = input.aimX - p.x;
@@ -1217,14 +1680,38 @@ export class World {
       dirY /= dirLen;
     }
 
-    p.skillCooldown = this.skillCooldownTicksOf(p);
+    p.skillCooldowns[slot] = this.skillCooldownTicksOf(p, slot);
     p.lastSkillTick = this.tick;
     p.lastSkillDirX = dirX;
     p.lastSkillDirY = dirY;
 
-    const range = this.meleeRangeOf(p) * C.SKILL_RANGE_MULT;
-    const damage = this.meleeDamageOf(p) * C.SKILL_DAMAGE_MULT;
-    const knockback = C.SKILL_KNOCKBACK * p.knockbackMult;
+    // Skill przywołujący stawia jednostkę i na tym kończy — reszta tej metody
+    // dotyczy wyłącznie ciosów w stożku.
+    if (skill.kind === 'summon') {
+      this.castSummon(p, skill, input, dirX, dirY);
+      return;
+    }
+
+    // Skok bojowy: odpalamy ten sam doskok, którego używa spacja, tylko
+    // wskazany przez umiejętność. Zero powielonego kodu skoku.
+    if (skill.kind === 'leap') {
+      this.startDash(p, dashById(skill.dashId), dirX, dirY);
+      // Reset dasha po skoku bojowym byłby resetem samego siebie — pętla
+      // bez przestoju. Dlatego zerujemy cooldown TYLKO doskoku spod spacji.
+      if (skill.resetsDash) p.dashCooldown = 0;
+      return;
+    }
+
+    // Trafienie umiejętnością odnawia doskok — silnik buildu skoczka.
+    // Nie sprawdzamy, czy faktycznie kogoś trafiło: w hordzie i tak zawsze
+    // trafia, a warunek „musisz trafić" karałby za pudło w pustym polu.
+    if (skill.resetsDash) p.dashCooldown = 0;
+
+    // Wszystkie parametry z definicji umiejętności — podmiana skilla przez
+    // talent zmienia zachowanie bez dotykania tego kodu.
+    const range = this.meleeRangeOf(p) * skill.rangeMult;
+    const baseDamage = this.meleeDamageOf(p) * skill.damageMult;
+    const knockback = skill.knockback * p.knockbackMult;
     this.hash.forEachNear(p.x, p.y, range + C.MOB_RADIUS_MAX, (i) => {
       const m = this.mobs[i];
       if (!m.alive) return;
@@ -1235,8 +1722,8 @@ export class World {
       if (d2 > reach * reach || d2 === 0) return;
       const d = Math.sqrt(d2);
       // Test stożka: kąt między kierunkiem celowania a wektorem do moba.
-      if ((dx / d) * dirX + (dy / d) * dirY < C.SKILL_CONE_COS) return;
-      m.hp -= damage;
+      if ((dx / d) * dirX + (dy / d) * dirY < skill.coneCos) return;
+      m.hp -= this.rollDamage(p, baseDamage);
       m.lastHitTick = this.tick;
       if (m.hp <= 0) {
         this.killMob(m, p);
@@ -1253,6 +1740,316 @@ export class World {
       m.x = Math.min(Math.max(kb.x, C.MOB_RADIUS), C.WORLD_W - C.MOB_RADIUS);
       m.y = Math.min(Math.max(kb.y, C.MOB_RADIUS), C.WORLD_H - C.MOB_RADIUS);
     });
+  }
+
+  /** Postawienie jednostki skillem — miejsce bierzemy spod kursora. */
+  private castSummon(
+    p: Player, skill: SummonSkill, input: SimInput, dirX: number, dirY: number,
+  ): void {
+    const def = minionById(skill.minionId);
+    if (!def) return;
+
+    // Cel poza zasięgiem stawiania przycinamy do maksimum — skill nigdy nie
+    // „nie działa", tylko stawia jednostkę tak daleko, jak wolno.
+    let tx = input.aimX;
+    let ty = input.aimY;
+    const dx = tx - p.x;
+    const dy = ty - p.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist > skill.placeRange || dist < 0.001) {
+      tx = p.x + dirX * skill.placeRange;
+      ty = p.y + dirY * skill.placeRange;
+    }
+
+    for (let i = 0; i < skill.count; i++) {
+      // Kilka sztuk naraz rozstawiamy w wachlarzu, żeby nie stały w sobie.
+      const spread = skill.count > 1 ? (i - (skill.count - 1) / 2) * def.radius * 2.4 : 0;
+      this.spawnMinion(def, p.index, tx - dirY * spread, ty + dirX * spread);
+    }
+  }
+
+  /* ── Sojusznicze jednostki ────────────────────────────────────────────── */
+
+  /** Wolny slot w poolu jednostek (-1 = pool pełny). */
+  private findFreeMinionSlot(): number {
+    for (let i = 0; i < this.minions.length; i++) if (!this.minions[i].alive) return i;
+    return -1;
+  }
+
+  private countMinions(defIndex: number, ownerIndex: number): number {
+    let n = 0;
+    for (const mi of this.minions) {
+      if (mi.alive && mi.defIndex === defIndex && mi.ownerIndex === ownerIndex) n++;
+    }
+    return n;
+  }
+
+  /**
+   * Stawia jednostkę. Przy przekroczeniu `maxActive` USUWA NAJSTARSZĄ zamiast
+   * odmawiać — inaczej skill po cichu „nie działa", co jest gorsze niż
+   * podmiana: gracz widzi efekt każdego użycia.
+   */
+  spawnMinion(def: MinionDef, ownerIndex: number, x: number, y: number): Minion | null {
+    const owner = this.players[ownerIndex];
+    // Limit i statystyki skalują się talentami właściciela — to jest główny
+    // sposób, w jaki build przywoływacza rośnie w trakcie runu.
+    const maxActive = def.maxActive + (owner?.minionCountBonus ?? 0);
+    if (this.countMinions(MINIONS.indexOf(def), ownerIndex) >= maxActive) {
+      let oldest: Minion | null = null;
+      for (const mi of this.minions) {
+        if (!mi.alive || mi.defIndex !== MINIONS.indexOf(def) || mi.ownerIndex !== ownerIndex) continue;
+        if (!oldest || mi.spawnTick < oldest.spawnTick) oldest = mi;
+      }
+      if (oldest) oldest.alive = false;
+    }
+
+    const slot = this.findFreeMinionSlot();
+    if (slot === -1) return null;
+
+    const pos = this.pushOutOfObstacles(
+      Math.min(Math.max(x, def.radius), C.WORLD_W - def.radius),
+      Math.min(Math.max(y, def.radius), C.WORLD_H - def.radius),
+      def.radius,
+    );
+    const mi = this.minions[slot];
+    mi.alive = true;
+    mi.defIndex = MINIONS.indexOf(def);
+    mi.ownerIndex = ownerIndex;
+    mi.x = pos.x;
+    mi.y = pos.y;
+    mi.prevX = pos.x;
+    mi.prevY = pos.y;
+    mi.hp = def.hp * (owner?.minionHpMult ?? 1);
+    mi.maxHp = mi.hp;
+    // Jednostki wieczne (lifetimeTicks < 0) zostają wieczne niezależnie
+    // od mnożników — nie ma czego przedłużać.
+    mi.ttl =
+      def.lifetimeTicks < 0
+        ? -1
+        : Math.round(def.lifetimeTicks * (owner?.minionDurationMult ?? 1));
+    mi.attackCooldown = def.attackIntervalTicks;
+    mi.state = 'idle';
+    mi.stateTicks = 0;
+    mi.attackIndex = 0;
+    mi.spawnTick = this.tick;
+    return mi;
+  }
+
+  /** Najbliższy żywy wróg w promieniu — wspólny celownik wszystkich jednostek. */
+  private nearestMobTo(x: number, y: number, maxDist: number): Mob | null {
+    let best: Mob | null = null;
+    let bestD2 = maxDist * maxDist;
+    this.hash.forEachNear(x, y, maxDist, (i) => {
+      const m = this.mobs[i];
+      if (!m.alive) return;
+      const dx = m.x - x;
+      const dy = m.y - y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 < bestD2) {
+        bestD2 = d2;
+        best = m;
+      }
+    });
+    return best;
+  }
+
+  private stepMinions(): void {
+    for (const mi of this.minions) {
+      if (!mi.alive) continue;
+      const def = MINIONS[mi.defIndex];
+      mi.prevX = mi.x;
+      mi.prevY = mi.y;
+
+      if (mi.ttl > 0) {
+        mi.ttl--;
+        if (mi.ttl === 0) {
+          mi.alive = false;
+          continue;
+        }
+      }
+
+      // Zasięg szukania celu: jednostki nieruchome mają go z ataku, ruchome
+      // polują po całej okolicy.
+      const scan = def.movement === 'static' ? 520 : 900;
+      const target = this.nearestMobTo(mi.x, mi.y, scan);
+
+      if (def.movement !== 'static') this.moveMinion(mi, def, target);
+      if (def.hp > 0) this.damageMinionByContact(mi, def);
+      if (!mi.alive) continue;
+
+      if (def.attacks.length > 0) this.stepMinionAttack(mi, def, target);
+    }
+  }
+
+  private moveMinion(mi: Minion, def: MinionDef, target: Mob | null): void {
+    // `follow` trzyma się właściciela, `hunt` idzie po najbliższego wroga.
+    let tx: number;
+    let ty: number;
+    if (def.movement === 'follow') {
+      const owner = this.players[mi.ownerIndex];
+      tx = owner.x;
+      ty = owner.y;
+      const dx = tx - mi.x;
+      const dy = ty - mi.y;
+      // Blisko właściciela stoimy — inaczej jednostka wibruje wokół niego.
+      if (dx * dx + dy * dy < 90 * 90) return;
+    } else {
+      if (!target) return;
+      tx = target.x;
+      ty = target.y;
+    }
+
+    const dx = tx - mi.x;
+    const dy = ty - mi.y;
+    const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+    const step = def.speed * C.TICK_DT;
+    const nx = mi.x + (dx / dist) * step;
+    const ny = mi.y + (dy / dist) * step;
+    const pos = this.pushOutOfObstacles(nx, ny, def.radius);
+    mi.x = Math.min(Math.max(pos.x, def.radius), C.WORLD_W - def.radius);
+    mi.y = Math.min(Math.max(pos.y, def.radius), C.WORLD_H - def.radius);
+
+    // Walka wręcz: dotknięcie wroga rani go i nas (jeśli mamy HP).
+    if (def.contactDamage > 0 && target) {
+      const reach = def.radius + ENEMIES[target.defIndex].radius;
+      const tdx = target.x - mi.x;
+      const tdy = target.y - mi.y;
+      if (tdx * tdx + tdy * tdy <= reach * reach && mi.attackCooldown <= 0) {
+        mi.attackCooldown = Math.round(0.6 * C.TICK_RATE);
+        target.hp -= def.contactDamage * (this.players[mi.ownerIndex]?.minionDamageMult ?? 1);
+        target.lastHitTick = this.tick;
+        if (target.hp <= 0) this.killMob(target, this.players[mi.ownerIndex]);
+      }
+    }
+  }
+
+  /** Jednostki z HP obrywają od stykających się wrogów (duzi przywołańcy). */
+  private damageMinionByContact(mi: Minion, def: MinionDef): void {
+    let incoming = 0;
+    this.hash.forEachNear(mi.x, mi.y, def.radius + C.MOB_RADIUS_MAX, (i) => {
+      const m = this.mobs[i];
+      if (!m.alive) return;
+      const reach = def.radius + ENEMIES[m.defIndex].radius;
+      const dx = m.x - mi.x;
+      const dy = m.y - mi.y;
+      if (dx * dx + dy * dy <= reach * reach) incoming += ENEMIES[m.defIndex].contactDamage;
+    });
+    if (incoming <= 0) return;
+    mi.hp -= incoming * this.enemyDamageMult * C.TICK_DT;
+    if (mi.hp <= 0) mi.alive = false;
+  }
+
+  /**
+   * Cykl ataków jednostki. Świadomie ten sam kształt co u bossów
+   * (`stepBoss`): zamach → wykonanie → odpoczynek, ataki brane po kolei
+   * z listy. Dzięki temu duży przywołaniec może dostać ataki bossa 1:1.
+   */
+  private stepMinionAttack(mi: Minion, def: MinionDef, target: Mob | null): void {
+    if (mi.attackCooldown > 0) mi.attackCooldown--;
+
+    if (mi.state === 'windup' || mi.state === 'recover') {
+      mi.stateTicks--;
+      if (mi.stateTicks <= 0) {
+        if (mi.state === 'windup') this.executeMinionAttack(mi, def, target);
+        else mi.state = 'idle';
+      }
+      return;
+    }
+
+    if (mi.attackCooldown > 0) return;
+    const attack = def.attacks[mi.attackIndex];
+    // Atak wymagający celu czeka, aż ktoś wejdzie w zasięg.
+    if (attack.kind === 'bolt' && (!target || this.distTo(mi, target) > attack.range)) return;
+    if (attack.windupTicks <= 0) {
+      this.executeMinionAttack(mi, def, target);
+      return;
+    }
+    mi.state = 'windup';
+    mi.stateTicks = attack.windupTicks;
+  }
+
+  private distTo(mi: Minion, m: Mob): number {
+    return Math.sqrt((m.x - mi.x) * (m.x - mi.x) + (m.y - mi.y) * (m.y - mi.y));
+  }
+
+  private executeMinionAttack(mi: Minion, def: MinionDef, target: Mob | null): void {
+    const attack = def.attacks[mi.attackIndex];
+    // Jedno miejsce, w którym talenty właściciela wchodzą w obrażenia jednostki.
+    const power = this.players[mi.ownerIndex]?.minionDamageMult ?? 1;
+
+    switch (attack.kind) {
+      case 'bolt': {
+        if (!target) break;
+        const d = this.distTo(mi, target) || 1;
+        this.spawnProjectile(
+          mi.x, mi.y,
+          ((target.x - mi.x) / d) * attack.projectileSpeed,
+          ((target.y - mi.y) / d) * attack.projectileSpeed,
+          attack.damage * power,
+          true,
+        );
+        break;
+      }
+      case 'ring': {
+        for (let i = 0; i < attack.count; i++) {
+          const a = (i / attack.count) * Math.PI * 2;
+          this.spawnProjectile(
+            mi.x, mi.y,
+            Math.cos(a) * attack.projectileSpeed,
+            Math.sin(a) * attack.projectileSpeed,
+            attack.damage * power,
+            true,
+          );
+        }
+        break;
+      }
+      case 'slam': {
+        const knockback = attack.knockback ?? 0;
+        this.hash.forEachNear(mi.x, mi.y, attack.hitRadius + C.MOB_RADIUS_MAX, (i) => {
+          const m = this.mobs[i];
+          if (!m.alive) return;
+          const reach = attack.hitRadius + ENEMIES[m.defIndex].radius;
+          const dx = m.x - mi.x;
+          const dy = m.y - mi.y;
+          const d2 = dx * dx + dy * dy;
+          if (d2 > reach * reach) return;
+          m.hp -= attack.damage * power;
+          m.lastHitTick = this.tick;
+          if (m.hp <= 0) {
+            this.killMob(m, this.players[mi.ownerIndex]);
+            return;
+          }
+          if (knockback <= 0 || m.bossIndex >= 0) return;
+          const d = Math.sqrt(d2) || 1;
+          const kb = this.pushOutOfObstacles(
+            m.x + (dx / d) * knockback,
+            m.y + (dy / d) * knockback,
+            ENEMIES[m.defIndex].radius,
+          );
+          m.x = Math.min(Math.max(kb.x, C.MOB_RADIUS), C.WORLD_W - C.MOB_RADIUS);
+          m.y = Math.min(Math.max(kb.y, C.MOB_RADIUS), C.WORLD_H - C.MOB_RADIUS);
+        });
+        break;
+      }
+    }
+
+    mi.state = attack.recoverTicks > 0 ? 'recover' : 'idle';
+    mi.stateTicks = attack.recoverTicks;
+    mi.attackIndex = (mi.attackIndex + 1) % def.attacks.length;
+    mi.attackCooldown = def.attackIntervalTicks;
+  }
+
+  /**
+   * Wskrzeszenie zabitego wroga po stronie gracza (hiena nekromantka).
+   * Wywoływane z `killMob`, więc działa niezależnie od tego, CZYM wróg zginął.
+   */
+  private tryRaise(m: Mob, killer: Player): void {
+    if (killer.raiseRadius <= 0 || m.bossIndex >= 0) return;
+    const dx = m.x - killer.x;
+    const dy = m.y - killer.y;
+    if (dx * dx + dy * dy > killer.raiseRadius * killer.raiseRadius) return;
+    const def = minionById('thrall');
+    if (def) this.spawnMinion(def, killer.index, m.x, m.y);
   }
 
   private applyContactDamage(p: Player): void {
@@ -1303,6 +2100,9 @@ export class World {
    */
   private damagePlayer(p: Player, amount: number): void {
     if (p.dead || p.hurtCooldown > 0) return;
+    // Zając w skoku jest nad hordą — nic go nie dosięga. To jego sygnatura,
+    // więc bramka jest tutaj: dotyczy i kontaktu, i pocisków naraz.
+    if (this.isAirborne(p)) return;
     p.hurtCooldown = C.PLAYER_HURT_COOLDOWN_TICKS;
     if (p.shieldCharges > 0) {
       p.shieldCharges--;
@@ -1325,17 +2125,23 @@ export class World {
     this.aliveMobs--;
     this.kills++;
     if (m.bossIndex >= 0) {
-      // Boss padł — fala z bossem może się zakończyć. Zostawiamy bossMobIndex,
-      // bo po nim `step()` poznaje, że boss już był i jest po walce.
+      // Boss padł. Wskaźnik na jego slot MUSI zniknąć od razu — inaczej
+      // pierwszy mob, który dostanie ten slot z poola, zacznie udawać bossa.
       m.bossIndex = -1;
+      this.bossMobIndex = -1;
+      this.bossDefeated = true;
       killer.kills++;
+      // Boss to nie jest „jeden mob" — daje tyle, co cała fala zwykłych.
+      this.gainXp(killer, this.waveXp);
       return;
     }
     this.aliveByType[m.defIndex]--;
     killer.kills++;
+    this.gainXp(killer, PROGRESSION.xpPerKill);
     if (killer.leechHealPerKill > 0) {
       killer.hp = Math.min(this.maxHpOf(killer), killer.hp + killer.leechHealPerKill);
     }
+    this.tryRaise(m, killer);
     const dropChance = DROP_CONFIG.dropChancePercent + killer.dropChanceBonus;
     if (this.rng.next() * 100 < dropChance) this.dropItem(m.x, m.y);
   }
@@ -1432,7 +2238,7 @@ export class World {
         p.shieldCharges = Math.min(ITEM_CAPS.maxShieldCharges, p.shieldCharges + value);
         break;
       case 'regen':
-        p.regenPerSec += value;
+        p.regenPerSec = Math.min(ITEM_CAPS.regenMax, p.regenPerSec + value);
         break;
       case 'maxHp':
         p.maxHpBonus += value;
@@ -1441,8 +2247,32 @@ export class World {
       case 'cooldown':
         p.cooldownMult = Math.max(ITEM_CAPS.minCooldownMult, p.cooldownMult - value / 100);
         break;
+      case 'critChance':
+        p.critChance = Math.min(ITEM_CAPS.critChanceMax, p.critChance + value);
+        break;
+      case 'critDamage':
+        p.critDamageMult += value / 100;
+        break;
+      case 'raiseDead':
+        p.raiseRadius += value;
+        break;
+      case 'minionDamage':
+        p.minionDamageMult += value / 100;
+        break;
+      case 'minionHp':
+        p.minionHpMult += value / 100;
+        break;
+      case 'minionDuration':
+        p.minionDurationMult += value / 100;
+        break;
+      case 'minionCount':
+        p.minionCountBonus += value;
+        break;
+      case 'impactRadius':
+        p.impactRadiusMult += value / 100;
+        break;
       case 'leech':
-        p.leechHealPerKill += value;
+        p.leechHealPerKill = Math.min(ITEM_CAPS.leechMax, p.leechHealPerKill + value);
         break;
       case 'magnet':
         p.magnetBonus += value;
@@ -1451,7 +2281,7 @@ export class World {
         p.knockbackMult += value / 100;
         break;
       case 'thorns':
-        p.thornsDamage += value;
+        p.thornsDamage = Math.min(ITEM_CAPS.thornsMax, p.thornsDamage + value);
         break;
     }
   }
@@ -1483,7 +2313,23 @@ export class World {
       mix(p.hp);
       mix(p.dead ? 1 : 0);
       mix(p.left ? 1 : 0);
+      // Progresja wpływa na statystyki, więc musi być pilnowana przez sumę
+      // kontrolną — inaczej rozjazd talentów ujawniłby się dopiero w obrażeniach.
+      mix(p.level);
+      mix(p.talentPoints);
+      // Specjalizacja zmienia umiejętność, więc rozjazd tutaj oznacza dwie
+      // różne postacie — musi być wyłapany od razu, nie dopiero po obrażeniach.
+      mix(p.specIndex);
+      for (const spent of p.spentPerBranch) mix(spent);
       mix(p.kills);
+    }
+    // Jednostki wpływają na przebieg walki, więc rozjazd w nich musi być
+    // wykryty tak samo szybko jak rozjazd w mobkach.
+    for (const mi of this.minions) {
+      if (!mi.alive) continue;
+      mix(mi.x);
+      mix(mi.y);
+      mix(mi.hp);
     }
     for (let i = 0; i < this.mobs.length; i++) {
       const m = this.mobs[i];
