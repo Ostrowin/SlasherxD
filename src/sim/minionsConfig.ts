@@ -29,6 +29,14 @@ export interface BoltAttack {
   damage: number;
   range: number;
   recoverTicks: number;
+  /**
+   * Odbicia pocisku — te same pola co w `ProjectileSkill`, bo silnik odbić
+   * jest wspólny. Pominięte = zwykły pocisk ginący na pierwszym celu, więc
+   * istniejące wieżyczki nie wymagały żadnej zmiany.
+   */
+  chains?: number;
+  chainRange?: number;
+  chainFalloff?: number;
 }
 
 /**
@@ -69,6 +77,28 @@ export interface MinionDef {
   maxActive: number;
   /** Czy rysować pasek HP i nazwę (duzi przywołańcy). */
   showHpBar: boolean;
+
+  /**
+   * Jednostka znika PO PIERWSZYM ataku — ładunek, nie wieżyczka.
+   *
+   * Bez tego opóźniona detonacja musiałaby być udawana czasem życia dobranym
+   * pod czas zamachu, a to pęka przy pierwszym talencie na `minionDuration`:
+   * przedłużony ładunek zdąża naliczyć cooldown i wybucha drugi raz.
+   * Jeden bool zamyka temat i otwiera drogę minom oraz bombom.
+   */
+  oneShot?: boolean;
+
+  /**
+   * Jednostka jest PORTALEM: gracz, który na nią wejdzie, przenosi się do
+   * drugiego swojego portalu. Sama nie walczy i nie znika od obrażeń.
+   */
+  portal?: boolean;
+  /**
+   * `maxActive` jest BEZWZGLĘDNE — talenty na `minionCount` go nie ruszają.
+   * Potrzebne wszędzie tam, gdzie liczba sztuk jest częścią zasad, a nie
+   * siły: portale muszą być dokładnie dwa, inaczej „drugi portal" traci sens.
+   */
+  fixedCount?: boolean;
 }
 
 /**
@@ -197,6 +227,249 @@ export const MINIONS: MinionDef[] = [
     contactDamage: 18,
     maxActive: 1,
     showHpBar: true,
+  },
+  {
+    /**
+     * WSTRZĄS — niedźwiedź Gravity Mage, `Q`. Pole postawione w punkcie na
+     * mapie, które cyklicznie tłucze wszystko, co w nim stoi. Zero odrzutu
+     * celowo: odrzut wypychałby wrogów z pola, czyli skill zwalczałby sam
+     * siebie. Ma zmuszać hordę do przejścia przez strefę, nie rozganiać jej.
+     */
+    id: 'quake-field',
+    name: 'EARTHSHAKE',
+    color: 0x7b5cff,
+    shapeSides: 4,
+    radius: 20,
+    movement: 'static',
+    speed: 0,
+    hp: 0,
+    lifetimeTicks: secs(6),
+    attacks: [
+      { kind: 'slam', windupTicks: 0, hitRadius: 150, damage: 4, knockback: 0, recoverTicks: 0 },
+    ],
+    attackIntervalTicks: secs(0.6),
+    contactDamage: 0,
+    maxActive: 2,
+    showHpBar: false,
+  },
+  {
+    /**
+     * ZAPAŚĆ — niedźwiedź Gravity Mage, `W`. Cała umiejętność to JEDEN cios
+     * po długim zamachu: 2,2 s telegrafu, potem bardzo mocne uderzenie.
+     * Zamach jest tu mechaniką, a nie ozdobą — daje wrogom czas wyjść,
+     * więc trafienie wymaga przewidzenia, gdzie horda BĘDZIE.
+     *
+     * `attackIntervalTicks: 0`, bo to ono jest opóźnieniem PRZED zamachem
+     * (patrz `spawnMinion`) — całe opóźnienie ma siedzieć w `windupTicks`,
+     * żeby gracz je widział. Zniknięcie po wybuchu załatwia `oneShot`.
+     */
+    id: 'gravity-collapse',
+    name: 'COLLAPSE',
+    color: 0x9d4edd,
+    shapeSides: 6,
+    radius: 26,
+    movement: 'static',
+    speed: 0,
+    hp: 0,
+    lifetimeTicks: secs(4),
+    attacks: [
+      { kind: 'slam', windupTicks: secs(2.2), hitRadius: 210, damage: 55, knockback: 70, recoverTicks: 0 },
+    ],
+    attackIntervalTicks: 0,
+    oneShot: true,
+    contactDamage: 0,
+    maxActive: 2,
+    showHpBar: false,
+  },
+  {
+    /**
+     * PUŁAPKA CZASOWA — lis Chronomancer, `Q`. Mała, tania, długo stoi.
+     * Sens gałęzi to ZAGĘSZCZENIE: pojedyncza pułapka jest słaba, ale
+     * `minionCount` i `minionDuration` w drzewku zamieniają arenę w pole
+     * minowe budowane przez cały run. Dlatego bazowe obrażenia są niskie,
+     * a `maxActive` już na starcie wyższe niż u totemów dzika.
+     */
+    id: 'chrono-trap',
+    name: 'TEMPORAL TRAP',
+    color: 0x38e8ff,
+    shapeSides: 3,
+    radius: 11,
+    movement: 'static',
+    speed: 0,
+    hp: 0,
+    lifetimeTicks: secs(30),
+    attacks: [
+      { kind: 'bolt', windupTicks: 0, projectileSpeed: 420, damage: 4, range: 300, recoverTicks: 0 },
+    ],
+    attackIntervalTicks: secs(1.1),
+    contactDamage: 0,
+    maxActive: 6,
+    showHpBar: false,
+  },
+  {
+    /**
+     * BURZA — wilk Thunder Fang, combo `E→W→Q`. Bije LEKKO (3 obrażenia),
+     * ale co 0,15 s i z dwoma rykoszetami, więc w tłumie sypie kilkanaście
+     * trafień na sekundę. To jest cała jej rola: nie zabija pojedynczego
+     * wroga, tylko topi falę.
+     *
+     * `maxActive: 1` — burza ma być WYDARZENIEM na 13 s cooldownu, a nie
+     * czymś, czym zastawia się arenę.
+     */
+    id: 'thunder-nova',
+    name: 'THUNDER NOVA',
+    color: 0xffe066,
+    shapeSides: 5,
+    radius: 22,
+    movement: 'static',
+    speed: 0,
+    hp: 0,
+    lifetimeTicks: secs(7),
+    attacks: [
+      {
+        kind: 'bolt', windupTicks: 0, projectileSpeed: 600,
+        damage: 3, range: 340, recoverTicks: 0,
+        chains: 2, chainRange: 240, chainFalloff: 0.9,
+      },
+    ],
+    attackIntervalTicks: secs(0.15),
+    contactDamage: 0,
+    maxActive: 1,
+    showHpBar: false,
+  },
+  {
+    /**
+     * WILK Z WATAHY — alfa, `E`. Poluje sam i bije wręcz, ale prawdziwa
+     * wartość jest gdzie indziej: każdy z nich LICZY SIĘ jako sojusznik do
+     * bonusów alfy i POWTARZA jego Swipe (`packEcho`). Dlatego pojedynczy
+     * wilk jest przeciętny, a szóstka zmienia sposób gry.
+     */
+    id: 'pack-wolf',
+    name: 'WOLF',
+    color: 0x9aa5b1,
+    shapeSides: 3,
+    radius: 13,
+    movement: 'hunt',
+    speed: 250,
+    hp: 0,
+    lifetimeTicks: secs(45),
+    attacks: [],
+    attackIntervalTicks: 0,
+    contactDamage: 7,
+    maxActive: 4,
+    showHpBar: false,
+  },
+  {
+    /**
+     * PORTAL — lis Chronomancer, `W`. Zawsze DWA: postawienie trzeciego
+     * kasuje najstarszy, co `spawnMinion` robi już z samego `maxActive`
+     * (usuwa najstarszą sztukę po przekroczeniu limitu). Stąd `fixedCount` —
+     * bez niego talenty na `minionCount` z tej samej gałęzi (pułapki!)
+     * pozwoliłyby postawić trzeci i para przestałaby być parą.
+     *
+     * Długi czas życia, bo portal to element ustawienia areny na całą walkę,
+     * a nie chwilowy trik.
+     */
+    id: 'chrono-portal',
+    name: 'PORTAL',
+    color: 0xc77dff,
+    shapeSides: 8,
+    radius: 20,
+    movement: 'static',
+    speed: 0,
+    hp: 0,
+    lifetimeTicks: secs(40),
+    attacks: [],
+    attackIntervalTicks: 0,
+    contactDamage: 0,
+    maxActive: 2,
+    showHpBar: false,
+    portal: true,
+    fixedCount: true,
+  },
+
+  /* ── Pola grawitacyjne niedźwiedzia (`E`) ──────────────────────────────
+   * Trzy warianty tego samego pola. Talenty w drzewku PODMIENIAJĄ skill na
+   * kolejny, więc ulepszenie jest widoczne od razu i nie wymaga ani jednej
+   * linijki w symulacji — dokładnie ten sam ruch co „snajper podmienia Q".
+   *
+   * Bazowe pole nie zadaje obrażeń celowo: `minionDamage` z drzewka mnoży
+   * damage, a 0 × cokolwiek dalej jest zerem. Obrażenia wchodzą dopiero
+   * z ulepszeniem, i dopiero od tego momentu talenty na nie działają.
+   */
+  {
+    /** POLE GRAWITACYJNE — samo spowolnienie, zero obrażeń. */
+    id: 'gravity-field',
+    name: 'GRAVITY WELL',
+    color: 0x7b5cff,
+    shapeSides: 6,
+    radius: 22,
+    movement: 'static',
+    speed: 0,
+    hp: 0,
+    lifetimeTicks: secs(8),
+    attacks: [
+      {
+        kind: 'slam', windupTicks: 0, hitRadius: 200,
+        damage: 0, knockback: 0, status: 'gravity-drag', recoverTicks: 0,
+      },
+    ],
+    attackIntervalTicks: secs(0.4),
+    contactDamage: 0,
+    maxActive: 1,
+    showHpBar: false,
+  },
+  {
+    /** CRUSHING WELL — to samo pole, ale już podgryza (talent `grav-crush`). */
+    id: 'gravity-field-crush',
+    name: 'CRUSHING WELL',
+    color: 0x9d4edd,
+    shapeSides: 6,
+    radius: 24,
+    movement: 'static',
+    speed: 0,
+    hp: 0,
+    lifetimeTicks: secs(8),
+    attacks: [
+      {
+        kind: 'slam', windupTicks: 0, hitRadius: 200,
+        damage: 5, knockback: 0, status: 'gravity-drag', recoverTicks: 0,
+      },
+    ],
+    attackIntervalTicks: secs(0.4),
+    contactDamage: 0,
+    maxActive: 1,
+    showHpBar: false,
+  },
+  {
+    /**
+     * SINGULARITY — zwieńczenie gałęzi. DWA ataki na przemian: spowolnienie
+     * i ogłuszenie. Dzięki naprzemienności stun pulsuje co drugie tyknięcie,
+     * zamiast trzymać hordę zamrożoną bez przerwy.
+     */
+    id: 'gravity-field-singularity',
+    name: 'SINGULARITY',
+    color: 0xff3ea5,
+    shapeSides: 8,
+    radius: 26,
+    movement: 'static',
+    speed: 0,
+    hp: 0,
+    lifetimeTicks: secs(8),
+    attacks: [
+      {
+        kind: 'slam', windupTicks: 0, hitRadius: 210,
+        damage: 8, knockback: 0, status: 'gravity-drag', recoverTicks: 0,
+      },
+      {
+        kind: 'slam', windupTicks: 0, hitRadius: 210,
+        damage: 8, knockback: 0, status: 'stun', recoverTicks: 0,
+      },
+    ],
+    attackIntervalTicks: secs(0.4),
+    contactDamage: 0,
+    maxActive: 1,
+    showHpBar: false,
   },
 ];
 

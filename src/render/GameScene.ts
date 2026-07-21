@@ -4,9 +4,11 @@ import { CLASSES, classById, DEFAULT_CLASS_ID, type ClassDef } from '../sim/clas
 import { ENEMIES } from '../sim/enemies';
 import { BOSSES, type BossDef } from '../sim/bosses';
 import { sfx } from './audio';
-import { branchesFor, PROGRESSION, talentSlotsFor } from '../sim/talentsConfig';
+import { ALPHA_PACK, branchesFor, PROGRESSION, talentSlotsFor } from '../sim/talentsConfig';
 import { SKILL_KEYS } from '../sim/skillsConfig';
+import { COMBOS } from '../sim/comboConfig';
 import { MINIONS, type MinionDef } from '../sim/minionsConfig';
+import { STATUSES, auraById } from '../sim/statusConfig';
 import { DROP_CONFIG, ITEMS } from '../sim/itemsConfig';
 import { UPGRADES, WAVE_CONFIG } from '../sim/wavesConfig';
 import { CURRENCY_NAME, computeReward } from '../sim/metaConfig';
@@ -223,9 +225,20 @@ export class GameScene extends Phaser.Scene {
     this.accumulator = 0;
     this.lastSeenMeleeTick = -1;
     this.lastSeenHp = this.cls.maxHp;
+    /*
+     * KAŻDA tablica zapełniana niżej przez `push()` MUSI zostać tu wyzerowana.
+     *
+     * Scena Phasera przeżywa restart (ten sam obiekt klasy), ale wszystkie jej
+     * GameObjecty są niszczone. Bez wyzerowania tablica rośnie z każdym runem:
+     * indeksy 0..119 wskazują wtedy na sprite'y ZNISZCZONE w poprzednim runie,
+     * a nowe lądują za nimi i nikt ich nie używa. Objaw jest mylący, bo
+     * symulacja działa poprawnie — po prostu nic nie widać.
+     * Tak właśnie znikały itemy w drugim runie (zgłoszone 2026-07-20).
+     */
     this.mobSprites = [];
     this.minionSprites = [];
     this.projectileSprites = [];
+    this.pickupSprites = [];
 
     this.createTextures();
     this.buildBackground();
@@ -305,6 +318,27 @@ export class GameScene extends Phaser.Scene {
       this.minionSprites.push(
         this.add.image(0, 0, minionTextureKey(MINIONS[0])).setVisible(false).setDepth(3),
       );
+    }
+
+    // Strażnik przecieku między runami: każdy pool sprite'ów musi mieć DOKŁADNIE
+    // tyle sztuk, ile jego pool w symulacji. Nadmiar oznacza, że tablicy nie
+    // wyzerowano przy restarcie sceny, a wtedy render adresuje zniszczone
+    // obiekty i po prostu nic nie widać (tak zniknęły itemy w drugim runie).
+    if (import.meta.env.DEV) {
+      const pule: [string, number, number][] = [
+        ['mobSprites', this.mobSprites.length, C.MOB_CAP],
+        ['projectileSprites', this.projectileSprites.length, C.PROJECTILE_CAP],
+        ['pickupSprites', this.pickupSprites.length, DROP_CONFIG.maxGroundItems],
+        ['minionSprites', this.minionSprites.length, this.world.minions.length],
+      ];
+      for (const [nazwa, jest, ma] of pule) {
+        if (jest !== ma) {
+          console.error(
+            `[GameScene] ${nazwa} ma ${jest} sprite'ów zamiast ${ma} — ` +
+              'brak wyzerowania tablicy przy restarcie sceny (patrz create()).',
+          );
+        }
+      }
     }
 
     const cam = this.cameras.main;
@@ -472,12 +506,13 @@ export class GameScene extends Phaser.Scene {
     // więcej co drugą. Bez bufora połowa wciśnięć znikała bez śladu.
     if (!uiBlocking) {
       const skillKeys = [this.keys.q, this.keys.w, this.keys.e];
+      // Specjalizacja oparta na COMBO ma sloty PUSTE i nie ma cooldownów per
+      // klawisz — wciśnięcie musi dojść do symulacji mimo to, inaczej
+      // sekwencje nigdy by się nie złożyły i gałąź byłaby martwa.
+      const comboUser = this.me.comboIds.length > 0;
       for (let i = 0; i < skillKeys.length; i++) {
-        if (
-          this.me.skillIds[i] &&
-          this.me.skillCooldowns[i] <= 0 &&
-          Phaser.Input.Keyboard.JustDown(skillKeys[i])
-        ) {
+        const slotReady = this.me.skillIds[i] && this.me.skillCooldowns[i] <= 0;
+        if ((slotReady || comboUser) && Phaser.Input.Keyboard.JustDown(skillKeys[i])) {
           this.pendingSkillCast = i;
           break;
         }
@@ -530,6 +565,23 @@ export class GameScene extends Phaser.Scene {
   private drawTelegraphs(): void {
     const w = this.world;
     this.telegraphs.clear();
+
+    // Aury: delikatny okrąg zasięgu wokół właściciela. Rysujemy dla WSZYSTKICH
+    // graczy — w co-opie trzeba widzieć, gdzie sięga pole kolegi.
+    w.players.forEach((p, i) => {
+      if (p.dead || p.auraIds.length === 0) return;
+      const s = this.playerSprites[i];
+      for (const id of p.auraIds) {
+        const aura = auraById(id);
+        if (!aura) continue;
+        const puls = 1 + Math.sin(w.tick * 0.12) * 0.02;
+        this.telegraphs
+          .lineStyle(2, aura.color, 0.35)
+          .strokeCircle(s.x, s.y, aura.radius * puls)
+          .fillStyle(aura.color, 0.05)
+          .fillCircle(s.x, s.y, aura.radius * puls);
+      }
+    });
 
     // Telegraf bossa — czytamy promień z aktualnie szykowanego ataku.
     const boss = w.boss;
@@ -1205,11 +1257,17 @@ export class GameScene extends Phaser.Scene {
 
       const def = ENEMIES[m.defIndex];
 
+      // Status (trucizna/spowolnienie) miga kolorem — gracz musi widzieć,
+      // że na wrogu coś wisi, inaczej cały system jest niewidzialny.
+      const status = m.statuses.find((st) => st.defIndex >= 0);
+
       // Hit-flash: świeżo trafiony mob świeci na biało przez ~2 ticki.
       if (w.tick - m.lastHitTick <= 2) s.setTintFill(0xffffff);
       else if (m.state === 'windup') s.setTintFill(0xffffff); // ładuje cios — świeci
       else if (m.state === 'recover') s.setTint(0x666677); // bezbronny — przygasa
-      else s.setTint(def.color);
+      else if (status && Math.floor(w.tick / 4) % 2 === 0) {
+        s.setTint(STATUSES[status.defIndex].color);
+      } else s.setTint(def.color);
 
       // Zamach „puchnie", faza bezbronności kuli się — czytelne bez ikonek.
       if (m.state === 'windup' && def.slam) {
@@ -1445,6 +1503,52 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  /**
+   * Pasek combo — dla specjalizacji, w których klawisze nie mają własnych
+   * umiejętności, tylko tworzą sekwencje (Thunder Fang wilka).
+   *
+   * Musi pokazywać TRZY rzeczy naraz, inaczej mechanika jest nieczytelna:
+   * jakie sekwencje istnieją i czy są gotowe, ile klawiszy gracz już wcisnął
+   * (bufor kasuje się po chwili ciszy), oraz czy cios jest UZBROJONY —
+   * bo `STORM CHAIN` nie robi nic widocznego aż do trafienia.
+   */
+  private comboHudText(me: Player): string {
+    if (me.comboIds.length === 0) return '';
+
+    const lista = me.comboIds
+      .map((id) => {
+        const index = COMBOS.findIndex((c) => c.id === id);
+        if (index < 0) return '';
+        const combo = COMBOS[index];
+        const keys = combo.sequence.map((s) => SKILL_KEYS[s]).join('>');
+        const cd = me.comboCooldowns[index];
+        return cd <= 0
+          ? `[${keys}] ${combo.name}`
+          : `[${keys}] ${combo.name} ${(cd * C.TICK_DT).toFixed(1)}s`;
+      })
+      .filter(Boolean)
+      .join('   ');
+
+    // Postęp sekwencji: gracz musi widzieć, że gra go zarejestrowała.
+    const bufor = me.comboSeq.length
+      ? `   >> ${me.comboSeq.map((s) => SKILL_KEYS[s]).join(' ')}`
+      : '';
+    return `${lista}${bufor}`;
+  }
+
+  /**
+   * Wzmocnienie rykoszetu — wspólne dla combo wilka i `ARCANE SURGE` lisa,
+   * bo w symulacji to jeden mechanizm. Bez tego gracz nie wie, że jego
+   * następny cios (albo najbliższe 20 s) wygląda inaczej niż zwykle.
+   */
+  private chainBuffText(me: Player): string {
+    if (me.chainBuffTicks <= 0) return '';
+    const sekundy = (me.chainBuffTicks * C.TICK_DT).toFixed(1);
+    // Jednorazowe czeka na trafienie, czasowe po prostu tyka.
+    const etykieta = me.chainBuffUses > 0 ? 'ARMED' : 'ACTIVE';
+    return `   ** ${me.chainBuffName} ${etykieta} ${sekundy}s **`;
+  }
+
   private updateHud(): void {
     const w = this.world;
     const me = this.me;
@@ -1469,6 +1573,11 @@ export class GameScene extends Phaser.Scene {
         ? `${dashName} ready [SPACE]`
         : `${dashName} ${(me.dashCooldown * C.TICK_DT).toFixed(1)}s`;
     const shield = me.shieldCharges > 0 ? `  |  SHIELD ${me.shieldCharges}` : '';
+    // Wataha: licznik i liczba swoich obok. Bez tego gracz nie widzi ani
+    // tego, że bonus rośnie, ani tego, że właśnie go stracił odbiegając.
+    const pack = me.packLeader
+      ? `  |  PACK ${me.packInstinct}/${ALPHA_PACK.instinctMax}  allies ${me.allyCount}`
+      : '';
     // Druga linia: statystyki zmienione przez itemy (pokazujemy tylko niezerowe).
     const stats: string[] = [];
     if (me.armorFlat > 0) stats.push(`ARM ${me.armorFlat}`);
@@ -1505,12 +1614,29 @@ export class GameScene extends Phaser.Scene {
           ? `  ** ${me.talentPoints} TALENT POINT(S) — [T] **`
           : '');
 
+    // Specjalizacja combo nie ma umiejętności w slotach, więc pasek pokazuje
+    // sekwencje zamiast pustego miejsca.
+    const combo = this.comboHudText(me);
+    // Wzmocnienie i gotowy skok dotyczą OBU rodzajów gałęzi, więc doklejamy
+    // je niezależnie od tego, czy gracz gra na combo czy na zwykłych slotach.
+    const blink =
+      me.blinkTicks > 0
+        ? `   ** BLINK READY ${(me.blinkTicks * C.TICK_DT).toFixed(1)}s **`
+        : '';
+    // Stop czasu jest stanem ŚWIATA, nie gracza — dotyczy całej drużyny.
+    const stop =
+      w.timeStopTicks > 0
+        ? `   ** TIME STOPPED ${(w.timeStopTicks * C.TICK_DT).toFixed(1)}s **`
+        : '';
+    const akcje = (combo || skill) + this.chainBuffText(me) + blink + stop;
+    const podpowiedz = combo ? 'Q/W/E: combos' : 'Q: slash';
+
     this.hud.setText(
       `${wavePart}  |  ${this.cls.name}  |  ${lvl}  |  FPS ${Math.round(this.game.loop.actualFps)}  |  ` +
         `mobs ${w.aliveMobs}  |  HP ${Math.round(me.hp)}/${w.maxHpOf(me)}  |  kills ${me.kills}${team}  |  ` +
-        `${skill}  |  ${dashState}${shield}\n` +
+        `${akcje}  |  ${dashState}${shield}${pack}\n` +
         `items ${me.totalItemsCollected}${stats.length ? '  |  ' + stats.join('  ') : ''}\n` +
-        `RMB: move   Q: slash   SPACE: ${dashName.toLowerCase()}   T: talents   ESC: pause   N: sound   hold M: dev spawn`,
+        `RMB: move   ${podpowiedz}   SPACE: ${dashName.toLowerCase()}   T: talents   ESC: pause   N: sound   hold M: dev spawn`,
     );
   }
 

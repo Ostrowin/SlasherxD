@@ -68,6 +68,35 @@ export const PROGRESSION = {
   waveXpShare: 0.85,
 };
 
+/**
+ * ALPHA PACK — strojenie drugiej gałęzi wilka.
+ *
+ * Trzyma się TUTAJ, a nie w symulacji, bo to są liczby projektowe jednej
+ * gałęzi: chcąc ją przebalansować, zagląda się do drzewka, a nie do world.ts.
+ *
+ * Dwa niezależne źródła siły, celowo:
+ *  - LICZBA sojuszników w pobliżu — natychmiastowa, znika gdy zostaniesz sam;
+ *  - PACK INSTINCT — narastający przez cały run licznik zabójstw w grupie.
+ * Pierwsze nagradza trzymanie się razem TERAZ, drugie premiuje robienie tego
+ * konsekwentnie. Sojusznik to każdy: inny gracz i DOWOLNY minion, także cudzy.
+ */
+export const ALPHA_PACK = {
+  /** W jakim promieniu liczymy sojuszników. */
+  radius: 420,
+  /** +% obrażeń za każdego sojusznika w promieniu. */
+  damagePerAlly: 6,
+  /** +armor za każdego sojusznika w promieniu (ułamki się sumują). */
+  armorPerAlly: 0.5,
+  /** Ile punktów licznika daje zabójstwo z sojusznikiem w pobliżu. */
+  instinctPerKill: 1,
+  /** Sufit licznika — bez niego długi run robi z wilka boga. */
+  instinctMax: 100,
+  /** +% obrażeń za każdy punkt licznika (przy suficie: +50%). */
+  damagePerInstinct: 0.5,
+  /** +% do bonusu z aury `pack-fury` za każdy punkt licznika. */
+  auraPerInstinct: 1,
+};
+
 /** Koszt POJEDYNCZEGO awansu z `level-1` na `level` (nie suma od początku). */
 export function xpForLevel(level: number): number {
   if (level <= 1) return 0;
@@ -115,6 +144,28 @@ export interface TalentDef {
    * Kolejny slot umiejętności — ten sam mechanizm co `grantsSkills`.
    */
   grantsDash?: string;
+  /**
+   * OPRÓŻNIA sloty Q/W/E. Dla specjalizacji, w których klawisze same nic nie
+   * robią, a liczy się wyłącznie ich KOLEJNOŚĆ (Thunder Fang wilka).
+   */
+  clearsSkills?: boolean;
+  /** Combo z `comboConfig.ts`, których uczy ta specjalizacja. */
+  grantsCombos?: string[];
+  /**
+   * Pasywny rykoszet auto-ataku: trafiony wróg wypuszcza błyskawicę
+   * w kolejnego. `chains` = ile razy przeskakuje.
+   */
+  grantsRicochet?: { chains: number; range: number; falloff: number; damageMult: number };
+  /**
+   * Włącza mechanikę watahy (`ALPHA_PACK`): bonusy od liczby sojuszników
+   * w pobliżu i licznik Pack Instinct rosnący za zabójstwa w grupie.
+   */
+  grantsPack?: boolean;
+  /**
+   * Włącza aurę o podanym id (`AURAS` w `statusConfig.ts`). Aury nie mają
+   * slotów — gracz może roztaczać kilka naraz i one się sumują.
+   */
+  grantsAura?: string;
 }
 
 export interface TalentTier {
@@ -170,6 +221,8 @@ const PASSIVE_LABEL: Partial<Record<ItemKind, { label: string; unit: string }>> 
   minionDuration: { label: 'MINION duration', unit: '%' },
   minionCount: { label: 'max MINIONS', unit: '' },
   impactRadius: { label: 'SHOCKWAVE radius', unit: '%' },
+  projectileCount: { label: 'PROJECTILES', unit: '' },
+  chainCount: { label: 'CHAIN bounces', unit: '' },
 };
 
 /**
@@ -214,13 +267,21 @@ function specTier(def: TalentDef): TalentTier {
 
 function spec(
   id: string, name: string, kind: ItemKind, value: number,
-  extraDesc?: string, grants?: { skills?: string[]; dash?: string },
+  extraDesc?: string,
+  grants?: {
+    skills?: string[]; dash?: string; aura?: string;
+    combos?: string[]; clearSkills?: boolean;
+    ricochet?: { chains: number; range: number; falloff: number; damageMult: number };
+    pack?: boolean;
+  },
 ): TalentDef {
   const l = PASSIVE_LABEL[kind];
   const bonus = `+${Math.round(value * 100) / 100}${l?.unit ?? ''} ${l?.label ?? kind}`;
   return {
     id: `${id}-spec`, name, kind, valuePerRank: value, maxRank: 1,
-    grantsSkills: grants?.skills, grantsDash: grants?.dash,
+    grantsSkills: grants?.skills, grantsDash: grants?.dash, grantsAura: grants?.aura,
+    grantsCombos: grants?.combos, clearsSkills: grants?.clearSkills,
+    grantsRicochet: grants?.ricochet, grantsPack: grants?.pack,
     desc: extraDesc ? `${extraDesc} · ${bonus}` : `SPECIALIZE · ${bonus}`,
   };
 }
@@ -505,13 +566,288 @@ const BOAR_ENGINEER: TalentBranch = {
 };
 
 /**
+ * NIEDŹWIEDŹ — GRAVITY MAGE. Odchodzi od zwarcia: obsadza `Q` i `W` polami
+ * stawianymi W PUNKCIE NA MAPIE, więc gra się nim o kontrolę terenu, a nie
+ * o dystans do wroga. `E` zostaje domyślne — czeka na czarną dziurę.
+ *
+ * Zamiast pancerza rośnie tu `minionDamage`: pola są jedynym źródłem
+ * obrażeń tej gałęzi, więc to ONO jest osią postępu. Niedźwiedź nadal może
+ * być tankiem, tylko w pozostałych dwóch gałęziach (gdd.md 5.4).
+ */
+const BEAR_GRAVITY: TalentBranch = {
+  id: 'bear-gravity',
+  name: 'GRAVITY MAGE',
+  tiers: [
+    specTier(
+      spec('bear-gravity', 'GRAVITY MAGE', 'cooldown', 10,
+        'Q quake · W collapse · E slowing field',
+        { skills: ['quake-field', 'gravity-collapse', 'gravity-field'] }),
+    ),
+    {
+      requiresInBranch: 0,
+      talents: [
+        passive('grav-mass', 'Critical Mass', 'minionDamage', 35, 5),
+        passive('grav-anchor', 'Anchored Stance', 'maxHp', rankValue('maxHp'), 5),
+      ],
+    },
+    {
+      requiresInBranch: 5,
+      talents: [
+        passive('grav-cycle', 'Shorter Cycle', 'cooldown', rankValue('cooldown'), 3),
+        passive('grav-linger', 'Lingering Field', 'minionDuration', 45, 3),
+        {
+          // PODMIENIA `E` na wariant zadający obrażenia. Dopiero od tego
+          // momentu talenty na `minionDamage` w ogóle mają co mnożyć —
+          // bazowe pole ma damage 0.
+          id: 'grav-crush',
+          name: 'Crushing Weight',
+          desc: 'E field also DAMAGES enemies inside',
+          kind: 'minionDamage',
+          valuePerRank: 20,
+          maxRank: 1,
+          grantsSkills: ['', '', 'gravity-field-crush'],
+        },
+      ],
+    },
+    {
+      requiresInBranch: 10,
+      talents: [
+        passive('grav-fault', 'Fault Lines', 'minionCount', 1, 3),
+        passive('grav-density', 'Density', 'minionDamage', 70, 3),
+      ],
+    },
+    {
+      requiresInBranch: 15,
+      talents: [
+        passive('grav-apex', 'Event Horizon', 'minionDamage', 160, 2),
+        {
+          // Zwieńczenie: pole zaczyna OGŁUSZAĆ. Wariant ma dwa ataki na
+          // przemian (spowolnienie / stun), więc horda dostaje przerywane
+          // ogłuszenie zamiast zamrożenia na stałe.
+          id: 'grav-singularity',
+          name: 'Singularity',
+          desc: 'E field also STUNS enemies inside',
+          kind: 'minionDamage',
+          valuePerRank: 40,
+          maxRank: 1,
+          grantsSkills: ['', '', 'gravity-field-singularity'],
+        },
+      ],
+    },
+  ],
+};
+
+/**
+ * LIS — CHRONOMANCER. Gałąź o ZAGĘSZCZANIU areny: `Q` stawia pułapkę,
+ * a drzewko rozwija ich LICZBĘ i CZAS TRWANIA, więc pole minowe narasta
+ * przez cały run zamiast być odnawiane co walkę. Stąd nacisk na
+ * `minionCount` i `minionDuration` zamiast na obrażenia jednej sztuki.
+ *
+ * `W` stawia PARĘ portali (trzeci kasuje najstarszy), `E` zatrzymuje czas.
+ * Uwaga na interakcję: talenty na `minionCount` z tej gałęzi podbijają
+ * liczbę PUŁAPEK, ale nie portali — te mają `fixedCount`, bo „dwa" jest
+ * u nich zasadą, a nie parametrem siły.
+ */
+const FOX_CHRONO: TalentBranch = {
+  id: 'fox-chrono',
+  name: 'CHRONOMANCER',
+  tiers: [
+    specTier(
+      spec('fox-chrono', 'CHRONOMANCER', 'cooldown', 10,
+        'Q trap · W portal pair · E time stop',
+        { skills: ['chrono-trap', 'chrono-portal', 'chrono-timestop'] }),
+    ),
+    {
+      requiresInBranch: 0,
+      talents: [
+        passive('chrono-web', 'Web of Moments', 'minionCount', 1, 5),
+        passive('chrono-wind', 'Long Wind', 'minionDuration', 40, 5),
+      ],
+    },
+    {
+      requiresInBranch: 5,
+      talents: [
+        passive('chrono-haste', 'Hastened Rites', 'cooldown', rankValue('cooldown'), 3),
+        passive('chrono-sharp', 'Sharpened Instants', 'minionDamage', 40, 3),
+      ],
+    },
+    {
+      requiresInBranch: 10,
+      talents: [
+        passive('chrono-lattice', 'Lattice', 'minionCount', 2, 3),
+        passive('chrono-echo', 'Echoing Snare', 'minionDamage', 70, 3),
+      ],
+    },
+    {
+      requiresInBranch: 15,
+      talents: [passive('chrono-apex', 'Frozen Hour', 'minionDuration', 120, 2)],
+    },
+  ],
+};
+
+/**
+ * LIS — ARCANE ARCHER. `Q` staje się strzałą, która WYBUCHA i PRZESKAKUJE
+ * na kolejnych wrogów. Cała gałąź rozwija dwie liczby: ile strzał leci naraz
+ * i ile razy każda się odbija — z jednej strzały i dwóch odbić robi się pod
+ * koniec runu wachlarz pięciu strzał odbijających się kilkanaście razy.
+ *
+ * `W` (blink arrow) i `E` (pasywka nakładająca volley) czekają na własne
+ * prymitywy: cast dwuetapowy i trigger on-hit.
+ */
+const FOX_ARCANE: TalentBranch = {
+  id: 'fox-arcane',
+  name: 'ARCANE ARCHER',
+  tiers: [
+    specTier(
+      spec('fox-arcane', 'ARCANE ARCHER', 'strength', 10,
+        'Q chaining arrow · W blink · E surge',
+        { skills: ['arcane-volley', 'blink-arrow', 'arcane-surge'] }),
+    ),
+    {
+      requiresInBranch: 0,
+      talents: [
+        passive('arc-quiver', 'Deep Quiver', 'projectileCount', 1, 2),
+        passive('arc-arcing', 'Arcing Bolt', 'chainCount', 1, 5),
+      ],
+    },
+    {
+      requiresInBranch: 5,
+      talents: [
+        passive('arc-focus', 'Focused Draw', 'strength', rankValue('strength'), 3),
+        passive('arc-conduct', 'Conductive Tips', 'chainCount', 1, 3),
+      ],
+    },
+    {
+      requiresInBranch: 10,
+      talents: [
+        passive('arc-volley', 'Wider Volley', 'projectileCount', 1, 2),
+        passive('arc-pierce', 'Piercing Draw', 'strength', rankValue('strength') * 1.6, 3),
+      ],
+    },
+    {
+      requiresInBranch: 15,
+      // Zwieńczenie idzie w odbicia, bo to ONE są fantazją tej gałęzi.
+      talents: [passive('arc-apex', 'Storm of Arrows', 'chainCount', 3, 2)],
+    },
+  ],
+};
+
+/**
+ * WILK — THUNDER FANG. Jedyna specjalizacja, która ODBIERA umiejętności:
+ * Q, W i E same z siebie nie robią nic, liczy się wyłącznie ich KOLEJNOŚĆ
+ * (`comboConfig.ts`). Zamiast trzech przycisków gracz ma trzy sekwencje:
+ *
+ *   Q→W→E  STORM CHAIN     uzbraja następny cios łańcuchem przez 20 celów
+ *   E→W→Q  THUNDER NOVA    burza w wybranym punkcie, bije lekko i szybko
+ *   Q→W→Q  LIGHTNING RUSH  przemieszczenie z rykoszetami sypanymi po drodze
+ *
+ * Do tego pasywnie KAŻDY auto-atak wypuszcza błyskawicę w kolejnego wroga —
+ * jednego, ale z daleka. Całe drzewko rozwija `chainCount`, bo odbicia
+ * dotyczą naraz pasywki, obu combo z błyskawicami i burzy.
+ */
+const WOLF_THUNDER: TalentBranch = {
+  id: 'wolf-thunder',
+  name: 'THUNDER FANG',
+  tiers: [
+    specTier(
+      spec('wolf-thunder', 'THUNDER FANG', 'attackSpeed', 15,
+        'Q/W/E become COMBOS · attacks ricochet',
+        {
+          clearSkills: true,
+          combos: ['storm-chain', 'thunder-nova', 'lightning-rush'],
+          ricochet: { chains: 1, range: 420, falloff: 0.9, damageMult: 0.6 },
+        }),
+    ),
+    {
+      requiresInBranch: 0,
+      talents: [
+        passive('thf-arc', 'Arc Length', 'chainCount', 1, 5),
+        passive('thf-static', 'Static Charge', 'attackSpeed', rankValue('attackSpeed'), 5),
+      ],
+    },
+    {
+      requiresInBranch: 5,
+      talents: [
+        passive('thf-over', 'Overcharge', 'strength', rankValue('strength'), 3),
+        passive('thf-quick', 'Quick Fangs', 'cooldown', rankValue('cooldown'), 3),
+      ],
+    },
+    {
+      requiresInBranch: 10,
+      talents: [
+        passive('thf-conduct', 'Conduction', 'chainCount', 2, 3),
+        passive('thf-struck', 'Thunderstruck', 'critChance', rankValue('critChance'), 3),
+      ],
+    },
+    {
+      requiresInBranch: 15,
+      talents: [passive('thf-apex', 'Storm Lord', 'chainCount', 3, 2)],
+    },
+  ],
+};
+
+/**
+ * WILK — ALPHA PACK. Druga gałąź: zamiast błyskawic — GRUPA.
+ *
+ *   Q  SWIPE      szeroki cios, który POWTARZA każdy twój wilk
+ *   W  PACK FURY  aura wzmacniająca całą drużynę, rośnie z licznikiem
+ *   E  CALL WOLF  dokłada wilka do watahy
+ *
+ * Do tego pasywnie: bonus do obrażeń i pancerza za KAŻDEGO sojusznika obok
+ * (liczy się dowolny minion, także cudzy) oraz PACK INSTINCT — licznik
+ * rosnący za zabójstwa w grupie i podbijający obrażenia i aurę. Strojenie
+ * siedzi w `ALPHA_PACK` na górze tego pliku.
+ *
+ * Drzewko idzie w `minionCount` i `minionDuration`, bo liczba wilków jest
+ * jednocześnie obrażeniami (echo Swipe'a), pancerzem i tempem licznika.
+ */
+const WOLF_ALPHA: TalentBranch = {
+  id: 'wolf-alpha',
+  name: 'ALPHA PACK',
+  tiers: [
+    specTier(
+      // Całkowite, bo maks. HP ląduje wprost na HUD-zie — ułamek dawał
+      // brzydkie „HP 105/104.76".
+      spec('wolf-alpha', 'ALPHA PACK', 'maxHp', 15,
+        'Q/W/E: swipe, fury aura, call wolf · allies empower you',
+        { skills: ['pack-swipe', 'pack-fury', 'summon-wolf'], pack: true }),
+    ),
+    {
+      requiresInBranch: 0,
+      talents: [
+        passive('alp-litter', 'Bigger Litter', 'minionCount', 1, 5),
+        passive('alp-bond', 'Blood Bond', 'minionDamage', 30, 5),
+      ],
+    },
+    {
+      requiresInBranch: 5,
+      talents: [
+        passive('alp-endure', 'Endurance', 'minionDuration', 40, 3),
+        passive('alp-fang', 'Sharper Fangs', 'strength', rankValue('strength'), 3),
+      ],
+    },
+    {
+      requiresInBranch: 10,
+      talents: [
+        passive('alp-horde', 'Howling Horde', 'minionCount', 2, 3),
+        passive('alp-hide', 'Thick Hide', 'armor', rankValue('armor'), 3),
+      ],
+    },
+    {
+      requiresInBranch: 15,
+      talents: [passive('alp-apex', 'Alpha', 'minionDamage', 120, 2)],
+    },
+  ],
+};
+
+/**
  * Drzewka wszystkich klas. Nazwy gałęzi są tematyczne (gdd.md 5.4), ale poza
  * kretem ich zawartość jest PLACEHOLDEREM z pasywów — do zaprojektowania.
  */
 export const CLASS_TALENTS: ClassTalents[] = [
-  { classId: 'bear',     branches: [passiveBranch('bear-bulwark', 'BULWARK', 'armor', 'maxHp'),            comingSoon('bear-2', 'RAMPAGE'),    comingSoon('bear-3', 'HIBERNATION')] },
-  { classId: 'wolf',     branches: [passiveBranch('wolf-pack', 'PACK HUNTER', 'attackSpeed', 'speed'),     comingSoon('wolf-2', 'LONE WOLF'),  comingSoon('wolf-3', 'HOWL')] },
-  { classId: 'fox',      branches: [passiveBranch('fox-ambush', 'AMBUSH', 'strength', 'range'),            comingSoon('fox-2', 'TRICKSTER'),   comingSoon('fox-3', 'FIRE TAIL')] },
+  { classId: 'bear',     branches: [BEAR_GRAVITY,                                                         comingSoon('bear-2', 'RAMPAGE'),    comingSoon('bear-3', 'HIBERNATION')] },
+  { classId: 'wolf',     branches: [WOLF_THUNDER, WOLF_ALPHA,                                             comingSoon('wolf-3', 'HOWL')] },
+  { classId: 'fox',      branches: [FOX_CHRONO, FOX_ARCANE,                                                comingSoon('fox-3', 'TRICKSTER')] },
   { classId: 'hare',     branches: [HARE_SLIPSTREAM, HARE_SUMMONER,                                      comingSoon('hare-3', 'AURA MASTER')] },
   { classId: 'mole',     branches: [MOLE_SNIPER,                                                          comingSoon('mole-2', 'ENGINEER'),   comingSoon('mole-3', 'BURROWER')] },
   { classId: 'hedgehog', branches: [passiveBranch('hog-bramble', 'BRAMBLE', 'thorns', 'armor'),            comingSoon('hog-2', 'CURL'),        comingSoon('hog-3', 'QUILL STORM')] },

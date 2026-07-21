@@ -354,6 +354,34 @@ Cała gałąź stoi na jednej pętli: **`Q` i `W` zerują cooldown skoku**, wię
 
 **Jednostki znikają między falami** — inaczej totemy przechodziłyby przez przerwę i pierwsza fala po niej byłaby darmowa.
 
+### 5.15 Statusy i aury — dwa prymitywy *(wdrożone 2026-07-20)*
+
+Konfiguracja: **`src/sim/statusConfig.ts`**. Zbudowane generycznie, bo będziemy z nich korzystać przy wielu klasach.
+
+**STATUS** — coś, co wisi NA WROGU przez jakiś czas. Jeden opis pokrywa cztery różne mechaniki, bo różnią się tylko liczbami:
+
+| Oś | Do czego służy |
+|---|---|
+| `damagePerTick` | trucizny i podpalenia (DoT) |
+| `speedMult` | spowolnienia i przymrożenia |
+| `vulnerability` | osłabienia — wróg obrywa mocniej od WSZYSTKIEGO |
+| `spreadRadius` / `spreadCount` | zaraza przeskakująca z wroga na wroga |
+| `maxStacks` | nakładanie się; siła bierze najsilniejszy stack, nie iloczyn — dwa spowolnienia nie mają zatrzymywać wroga w miejscu |
+
+Gotowe na start: `plague` (słaba, ale się rozprzestrzenia), `burn` (mocny DoT), `chill` (spowolnienie bez obrażeń), `weaken` (podatność).
+
+**Sloty:** 3 na wroga, prealokowane. Pool ma 400 wrogów i nie może alokować w trakcie gry; czwarty status wypycha ten z najkrótszym pozostałym czasem.
+
+**AURA** — coś, co wisi NA GRACZU i działa w promieniu. Aura celująca we wrogów zwykle po prostu **nakłada status**, więc oba prymitywy dzielą słownik i jeden plik.
+
+Gotowe: `miasma` (chmura zarazy), `frostfield` (pole spowalniające), `lifetide` (leczy drużynę), `packbond` (wzmacnia sojuszników obok).
+
+**Kluczowa decyzja — bonusy z aur są przeliczane OD ZERA w każdym ticku**, a nie doklejane na stałe do statystyk. Dzięki temu wyjście z pola samo zabiera bonus i nie ma żadnej księgowości „załóż / zdejmij", która jest klasycznym źródłem błędów typu „bonus został po wyjściu". Zweryfikowane testem: bonus znika w tym samym ticku, w którym sojusznik opuszcza promień.
+
+Talent włącza aurę przez `grantsAura`; aury **się sumują** (gracz może roztaczać kilka naraz).
+
+**Co odblokowują:** szczur (zaraza), wydra (leczenie drużyny), wilk (premia obok sojusznika) — a przy okazji trucizny, podpalenia, spowolnienia i osłabienia dla dowolnej przyszłej klasy.
+
 ### ~~5.11 Typy obrażeń: fizyczne i magiczne~~ *(PORZUCONE 2026-07-20, tego samego dnia)*
 
 > Obrażenia zostają **jednego rodzaju**. Powód porzucenia jest dokładnie ten, który zapisano w analizie poniżej: system zwracał się wyłącznie wtedy, gdyby wrogowie dostali zróżnicowane odporności — a bez tego byłby podwojeniem liczby statystyk, opisów i pozycji w sklepie bez żadnej zmiany w rozgrywce. Nic nie trafiło do kodu.
@@ -511,6 +539,7 @@ Poza MVP (świadomie później): mobile/dotyk, więcej klas i krain, boss, dźwi
 | 2026-07-20 | **Talent może podmienić umiejętność (`grantsSkill`); skille wyciągnięte do danych** | Warunek istnienia gałęzi zmieniających zachowanie. Bez tego każda z 36 ścieżek wymagałaby własnych rozgałęzień w kodzie symulacji (5.8, `skillsConfig.ts`) |
 | 2026-07-20 | **Krytyki: globalny efekt z dropów i kart, sufit 75% szansy** | Pomysł użytkownika; snajper ma je skalować mocniej niż inne klasy. Sufit poniżej 100%, bo przy gwarantowanym krycie statystyka przestaje być zdarzeniem i staje się zwykłym mnożnikiem obrażeń (5.3) |
 | 2026-07-20 | **Spacja = doskok; Power Slash przeniesiony na `Q`; skille w trybie quick cast** | Pomysł użytkownika. Quick cast zamiast celowania dwuetapowego, bo pod `W`/`E`/`R` dojdą kolejne skille — tryb celowania przy czterech byłby nie do grania. Dash ma własny cooldown, żeby nie konkurował ze skillem o ten sam zasób (5.4, sekcja 6) |
+| 2026-07-20 | **Prymitywy STATUS i AURA** (`statusConfig.ts`) | Zamówione generycznie „bo będziemy z tego często korzystać". Jeden opis statusu pokrywa DoT, spowolnienie, osłabienie i zarazę; aura na wrogów po prostu nakłada status. Bonusy z aur przeliczane co tick zamiast doklejane — zero księgowości przy wychodzeniu z pola (5.15) |
 | 2026-07-20 | **System sojuszniczych jednostek; ataki jednostek = ataki bossów** | Pomysł użytkownika (nekromanta, totemy, przywoływacz). Zbudowany od razu pod wszystkie cztery kształty naraz, a nie pod sam dron — dzięki czemu kolejna jednostka to wpis w danych. Behemot czyta ataki Hive Queen dosłownie (5.14) |
 | 2026-07-20 | **Wejścia jednorazowe buforowane do czasu konsumpcji przez symulację** | Błąd znaleziony przy pierwszym uruchomieniu renderu: render 60 FPS vs symulacja 30 Hz oznaczały, że połowa wciśnięć `Q`/`W`/`E`/spacji i kliknięć w talenty przepadała. Objaw: „czasem skill nie odpala" (roadmap.md, Faza 2) |
 | 2026-07-20 | **Zając SLIPSTREAM: `Q`/`W` resetują skok; apex zamienia spację w Power Jump** | Pomysł użytkownika — klasyczna pętla „reset przez trafienie" (Hades, Doom Eternal). Reset NIE trafił na sam doskok, bo resetowałby siebie i dał nieskończoną mobilność; pętlę ograniczają cooldowny `Q` i `W` (5.15) |

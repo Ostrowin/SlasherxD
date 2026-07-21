@@ -24,6 +24,12 @@ export interface SlamAttack {
   damage: number;
   /** Siła odrzutu (px). Używane przez totem odpychający sojuszników. */
   knockback?: number;
+  /**
+   * Status nakładany trafionym (`STATUSES` w statusConfig.ts). Pominięty =
+   * czysty cios. Dzięki temu „pole spowalniające" jest wpisem w danych,
+   * a nie osobnym rodzajem jednostki.
+   */
+  status?: string;
   recoverTicks: number;
 }
 

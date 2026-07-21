@@ -62,6 +62,8 @@ export const ITEM_CAPS = {
  *  - magnet:      +`value` px promienia zbierania
  *  - knockback:   odrzut skilla mocniejszy o `value`%
  *  - thorns:      wróg, który Cię dotknie, dostaje `value` obrażeń
+ *  - projectileCount: +`value` pocisków w wachlarzu skilla strzelającego
+ *  - chainCount:  +`value` odbić pocisku na kolejnego wroga
  *
  * `weight` = względna częstość dropu (większa waga = częstszy).
  */
@@ -90,7 +92,11 @@ export type ItemKind =
   | 'minionCount'
   | 'minionDuration'
   /** Promień fali uderzeniowej doskoku (build skoczka). */
-  | 'impactRadius';
+  | 'impactRadius'
+  /* Skalowanie pocisków odbijanych (`ProjectileSkill`) — na tych dwóch
+     statystykach stoi Arcane Archer lisa i Thunder Fang wilka. */
+  | 'projectileCount'
+  | 'chainCount';
 
 export interface ItemDef {
   kind: ItemKind;
