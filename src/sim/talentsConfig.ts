@@ -155,7 +155,7 @@ export interface TalentDef {
    * Pasywny rykoszet auto-ataku: trafiony wróg wypuszcza błyskawicę
    * w kolejnego. `chains` = ile razy przeskakuje.
    */
-  grantsRicochet?: { chains: number; range: number; falloff: number; damageMult: number };
+  grantsRicochet?: { chains: number; range: number; falloff: number; damageMult: number; visual?: string };
   /**
    * Włącza mechanikę watahy (`ALPHA_PACK`): bonusy od liczby sojuszników
    * w pobliżu i licznik Pack Instinct rosnący za zabójstwa w grupie.
@@ -166,6 +166,12 @@ export interface TalentDef {
    * slotów — gracz może roztaczać kilka naraz i one się sumują.
    */
   grantsAura?: string;
+  /**
+   * Ile razy bolt turreta buildera (`scalesWithOwner`) ODBIJA się na kolejnych
+   * wrogów. Zwieńczenie BASTIONA (`OVERCHARGE`) ustawia to bez tworzenia
+   * drugiego turreta — ten sam jeden zaczyna czyścić hordę.
+   */
+  grantsTurretChains?: number;
 }
 
 export interface TalentTier {
@@ -223,6 +229,7 @@ const PASSIVE_LABEL: Partial<Record<ItemKind, { label: string; unit: string }>> 
   impactRadius: { label: 'SHOCKWAVE radius', unit: '%' },
   projectileCount: { label: 'PROJECTILES', unit: '' },
   chainCount: { label: 'CHAIN bounces', unit: '' },
+  chainDamage: { label: 'CHAIN damage', unit: '%' },
 };
 
 /**
@@ -245,14 +252,23 @@ function rankValue(kind: ItemKind): number {
   return Math.round(v * 100) / 100;
 }
 
+/**
+ * `label` nadpisuje domyślną nazwę statystyki z `PASSIVE_LABEL`.
+ *
+ * Potrzebne, bo etykiety są GLOBALNE dla rodzaju efektu, a ten sam efekt
+ * znaczy w różnych klasach co innego: `minionDamage` u dzika to naprawdę
+ * obrażenia totemów, ale u niedźwiedzia-maga to siła jego pól obszarowych —
+ * on niczego nie przywołuje i słowo „MINION" tylko myli.
+ */
 function passive(
   id: string, name: string, kind: ItemKind, valuePerRank: number, maxRank: number,
+  label?: string,
 ): TalentDef {
   const l = PASSIVE_LABEL[kind];
   const sign = kind === 'cooldown' ? '-' : '+';
   return {
     id, name, kind, valuePerRank, maxRank,
-    desc: `${sign}${Math.round(valuePerRank * 100) / 100}${l?.unit ?? ''} ${l?.label ?? kind}`,
+    desc: `${sign}${Math.round(valuePerRank * 100) / 100}${l?.unit ?? ''} ${label ?? l?.label ?? kind}`,
   };
 }
 
@@ -271,7 +287,7 @@ function spec(
   grants?: {
     skills?: string[]; dash?: string; aura?: string;
     combos?: string[]; clearSkills?: boolean;
-    ricochet?: { chains: number; range: number; falloff: number; damageMult: number };
+    ricochet?: { chains: number; range: number; falloff: number; damageMult: number; visual?: string };
     pack?: boolean;
   },
 ): TalentDef {
@@ -450,8 +466,9 @@ const HARE_SUMMONER: TalentBranch = {
   name: 'SUMMONER',
   tiers: [
     specTier(
-      spec('hare-summoner', 'SUMMONER', 'cooldown', 8, 'Q summons a BEHEMOTH ally',
-        { skills: ['summon-behemoth'] }),
+      spec('hare-summoner', 'SUMMONER', 'cooldown', 8,
+        'Q golem · W hydra · E spirit · R swarm',
+        { skills: ['sm-golem', 'sm-hydra', 'sm-ghost', 'sm-swarm'] }),
     ),
     {
       requiresInBranch: 0,
@@ -580,13 +597,13 @@ const BEAR_GRAVITY: TalentBranch = {
   tiers: [
     specTier(
       spec('bear-gravity', 'GRAVITY MAGE', 'cooldown', 10,
-        'Q quake · W collapse · E slowing field',
+        'Q quake · W collapse · E slow field',
         { skills: ['quake-field', 'gravity-collapse', 'gravity-field'] }),
     ),
     {
       requiresInBranch: 0,
       talents: [
-        passive('grav-mass', 'Critical Mass', 'minionDamage', 35, 5),
+        passive('grav-mass', 'Critical Mass', 'minionDamage', 35, 5, 'AoE damage'),
         passive('grav-anchor', 'Anchored Stance', 'maxHp', rankValue('maxHp'), 5),
       ],
     },
@@ -594,14 +611,14 @@ const BEAR_GRAVITY: TalentBranch = {
       requiresInBranch: 5,
       talents: [
         passive('grav-cycle', 'Shorter Cycle', 'cooldown', rankValue('cooldown'), 3),
-        passive('grav-linger', 'Lingering Field', 'minionDuration', 45, 3),
+        passive('grav-linger', 'Lingering Field', 'minionDuration', 45, 3, 'field time'),
         {
           // PODMIENIA `E` na wariant zadający obrażenia. Dopiero od tego
           // momentu talenty na `minionDamage` w ogóle mają co mnożyć —
           // bazowe pole ma damage 0.
           id: 'grav-crush',
           name: 'Crushing Weight',
-          desc: 'E field also DAMAGES enemies inside',
+          desc: 'E also damages',
           kind: 'minionDamage',
           valuePerRank: 20,
           maxRank: 1,
@@ -612,21 +629,21 @@ const BEAR_GRAVITY: TalentBranch = {
     {
       requiresInBranch: 10,
       talents: [
-        passive('grav-fault', 'Fault Lines', 'minionCount', 1, 3),
-        passive('grav-density', 'Density', 'minionDamage', 70, 3),
+        passive('grav-fault', 'Fault Lines', 'minionCount', 1, 3, 'max fields'),
+        passive('grav-density', 'Density', 'minionDamage', 70, 3, 'AoE damage'),
       ],
     },
     {
       requiresInBranch: 15,
       talents: [
-        passive('grav-apex', 'Event Horizon', 'minionDamage', 160, 2),
+        passive('grav-apex', 'Event Horizon', 'minionDamage', 160, 2, 'AoE damage'),
         {
           // Zwieńczenie: pole zaczyna OGŁUSZAĆ. Wariant ma dwa ataki na
           // przemian (spowolnienie / stun), więc horda dostaje przerywane
           // ogłuszenie zamiast zamrożenia na stałe.
           id: 'grav-singularity',
           name: 'Singularity',
-          desc: 'E field also STUNS enemies inside',
+          desc: 'E also stuns',
           kind: 'minionDamage',
           valuePerRank: 40,
           maxRank: 1,
@@ -638,10 +655,11 @@ const BEAR_GRAVITY: TalentBranch = {
 };
 
 /**
- * LIS — CHRONOMANCER. Gałąź o ZAGĘSZCZANIU areny: `Q` stawia pułapkę,
- * a drzewko rozwija ich LICZBĘ i CZAS TRWANIA, więc pole minowe narasta
- * przez cały run zamiast być odnawiane co walkę. Stąd nacisk na
- * `minionCount` i `minionDuration` zamiast na obrażenia jednej sztuki.
+ * LIS — CHRONOMANCER. Gałąź o ZAGĘSZCZANIU areny: `Q` stawia MINĘ, która
+ * leży bezczynnie i wybucha obszarowo dopiero wtedy, gdy wróg na nią wejdzie.
+ * Drzewko rozwija ich LICZBĘ i CZAS TRWANIA, więc pole minowe narasta przez
+ * cały run zamiast być odnawiane co walkę — stąd nacisk na `minionCount`
+ * i `minionDuration` obok obrażeń pojedynczego wybuchu.
  *
  * `W` stawia PARĘ portali (trzeci kasuje najstarszy), `E` zatrzymuje czas.
  * Uwaga na interakcję: talenty na `minionCount` z tej gałęzi podbijają
@@ -742,8 +760,13 @@ const FOX_ARCANE: TalentBranch = {
  *   Q→W→Q  LIGHTNING RUSH  przemieszczenie z rykoszetami sypanymi po drodze
  *
  * Do tego pasywnie KAŻDY auto-atak wypuszcza błyskawicę w kolejnego wroga —
- * jednego, ale z daleka. Całe drzewko rozwija `chainCount`, bo odbicia
- * dotyczą naraz pasywki, obu combo z błyskawicami i burzy.
+ * jednego, ale z daleka.
+ *
+ * Drzewko stoi na DWÓCH filarach: `chainCount` (ile razy błyskawica odbija
+ * się dalej) i `chainDamage` (ile każde odbicie boli). Pierwsza wersja miała
+ * tylko liczbę odbić — 20-ty cel dostawał ułamek, bo obrażenia na odbicie
+ * nie rosły z niczym. Teraz gracz wybiera między SZEROKOŚCIĄ łańcucha
+ * a jego SIŁĄ, a zwieńczenie sypie obrażenia.
  */
 const WOLF_THUNDER: TalentBranch = {
   id: 'wolf-thunder',
@@ -755,33 +778,36 @@ const WOLF_THUNDER: TalentBranch = {
         {
           clearSkills: true,
           combos: ['storm-chain', 'thunder-nova', 'lightning-rush'],
-          ricochet: { chains: 1, range: 420, falloff: 0.9, damageMult: 0.6 },
+          ricochet: { chains: 1, range: 420, falloff: 0.9, damageMult: 1.0, visual: 'lightning' },
         }),
     ),
     {
       requiresInBranch: 0,
       talents: [
+        // Filar SIŁY vs filar SZEROKOŚCI — podstawowy wybór gałęzi.
+        passive('thf-charge', 'Overcharge', 'chainDamage', 30, 5),
         passive('thf-arc', 'Arc Length', 'chainCount', 1, 5),
-        passive('thf-static', 'Static Charge', 'attackSpeed', rankValue('attackSpeed'), 5),
       ],
     },
     {
       requiresInBranch: 5,
       talents: [
-        passive('thf-over', 'Overcharge', 'strength', rankValue('strength'), 3),
-        passive('thf-quick', 'Quick Fangs', 'cooldown', rankValue('cooldown'), 3),
+        passive('thf-surge', 'Surge', 'chainDamage', 50, 3),
+        passive('thf-static', 'Static Charge', 'attackSpeed', rankValue('attackSpeed'), 3),
       ],
     },
     {
       requiresInBranch: 10,
       talents: [
         passive('thf-conduct', 'Conduction', 'chainCount', 2, 3),
-        passive('thf-struck', 'Thunderstruck', 'critChance', rankValue('critChance'), 3),
+        passive('thf-over', 'High Voltage', 'strength', rankValue('strength'), 3),
       ],
     },
     {
       requiresInBranch: 15,
-      talents: [passive('thf-apex', 'Storm Lord', 'chainCount', 3, 2)],
+      // Zwieńczenie idzie w OBRAŻENIA odbicia — dopiero ono sprawia, że każda
+      // błyskawica w długim łańcuchu naprawdę boli.
+      talents: [passive('thf-apex', 'Storm Lord', 'chainDamage', 150, 2)],
     },
   ],
 };
@@ -789,7 +815,7 @@ const WOLF_THUNDER: TalentBranch = {
 /**
  * WILK — ALPHA PACK. Druga gałąź: zamiast błyskawic — GRUPA.
  *
- *   Q  SWIPE      szeroki cios, który POWTARZA każdy twój wilk
+ *   Q  SWIPE      szeroki cios; POWTARZA go każdy wilk, a wilki TNĄ też same co 1,6 s
  *   W  PACK FURY  aura wzmacniająca całą drużynę, rośnie z licznikiem
  *   E  CALL WOLF  dokłada wilka do watahy
  *
@@ -841,6 +867,382 @@ const WOLF_ALPHA: TalentBranch = {
 };
 
 /**
+ * WYDRA — TIDECALLER. Support, który kontroluje POLE BITWY, a nie pasek HP.
+ *
+ * Sygnatura gałęzi to `Q`: wydra WSIADA NA FALĘ i jedzie przez arenę,
+ * orząc wszystko po drodze — 1500 px, dłużej niż widać ekran. Z fali można
+ * zejść wcześniej, wciskając `Q` ponownie, więc długość przejazdu jest
+ * decyzją gracza, a nie parametrem. To jedyny doskok w grze, który zadaje
+ * obrażenia PRZEZ CAŁĄ DROGĘ, a nie na końcu (`DashDef.ride`).
+ *
+ *   Q  TIDAL SURF   jazda na fali; drugie wciśnięcie zsiada
+ *   W  WHIRLPOOL    wir pulsujący ogłuszeniem co drugie tyknięcie
+ *   E  TIDE GUARD   aura: pancerz i leczenie swoim, SOAKED obcym
+ *   R  MAELSTROM    ultimate: pierścienie pocisków plus ogłuszenia
+ *
+ * Do tego pasywnie `lifetide` od chwili wyboru specjalizacji.
+ *
+ * Obrażenia tej gałęzi idą przez `minionDamage`, czyli przez WIRY — wydra
+ * bije terenem, nie łapą. Dzięki temu może mieć realny damage, nie przestając
+ * być supportem. Drugi filar to SOAKED: `vulnerability` 1,3 sprawia, że
+ * najmocniejszą rzeczą, jaką wydra robi drużynie, są obrażenia KOGOŚ INNEGO.
+ */
+const OTTER_TIDECALLER: TalentBranch = {
+  id: 'ott-tide',
+  name: 'TIDECALLER',
+  tiers: [
+    specTier(
+      spec('ott-tide', 'TIDECALLER', 'regen', 1,
+        'Q surf · W whirlpool · E guard · R maelstrom · you heal allies nearby',
+        {
+          skills: ['tidal-surf', 'tide-whirl', 'tide-guard', 'tide-maelstrom'],
+          aura: 'lifetide',
+        }),
+    ),
+    {
+      requiresInBranch: 0,
+      talents: [
+        // `range` poszerza FALĘ (patrz `rideWave`), a nie tylko auto-atak —
+        // dlatego jest tu pierwszym filarem, a nie wypełniaczem.
+        passive('tide-current', 'Deep Current', 'range', 4, 5),
+        passive('tide-springs', 'Warm Springs', 'regen', 0.6, 5),
+      ],
+    },
+    {
+      requiresInBranch: 5,
+      talents: [
+        // 30, a nie 40 (bench 2026-07-24): pełna ranga mnoży obrażenia PIĘCIU
+        // wirów naraz (`Storm Surge`), więc ta liczba wchodzi do wyniku
+        // pomnożona przez ich liczbę, a nie raz.
+        passive('tide-undertow', 'Undertow', 'minionDamage', 30, 3),
+        passive('tide-flow', 'Steady Flow', 'cooldown', 6, 3),
+        {
+          // PODMIENIA `Q` na wariant, w którym fala nie moczy, tylko OGŁUSZA.
+          // Ten sam ruch co „E niedźwiedzia zaczyna ogłuszać" — talent wskazuje
+          // inną definicję, symulacja nie wie o niczym.
+          id: 'tide-breakwater',
+          name: 'Breakwater',
+          desc: 'your WAVE stuns instead of soaking',
+          kind: 'minionDamage',
+          valuePerRank: 20,
+          maxRank: 1,
+          grantsSkills: ['tidal-surf-crash'],
+        },
+      ],
+    },
+    {
+      requiresInBranch: 10,
+      talents: [
+        passive('tide-surge', 'Storm Surge', 'minionCount', 1, 3, 'max WHIRLPOOLS'),
+        passive('tide-crash', 'Crashing Wave', 'strength', 8, 3),
+      ],
+    },
+    {
+      requiresInBranch: 15,
+      talents: [
+        {
+          /**
+           * Zwieńczenie: aura spod `E` przestaje być czymś, co się włącza na
+           * 10 s co 20 s, i wisi na stałe — OBOK `lifetide` ze specjalizacji,
+           * bo aury się sumują. Od tego momentu sama obecność wydry w drużynie
+           * jest efektem: pancerz, leczenie i SOAKED na wszystkim dookoła.
+           */
+          id: 'tide-apex',
+          name: 'EVERTIDE',
+          desc: 'TIDE GUARD is always on · +2 HP per second',
+          kind: 'regen',
+          valuePerRank: 2,
+          maxRank: 2,
+          grantsAura: 'tideguard',
+        },
+      ],
+    },
+  ],
+};
+
+/**
+ * WYDRA — MIRROR TIDE. Asasyn, którego bronią jest USTAWIENIE, nie sam cios.
+ *
+ *   Q  MIRROR LANCE     bardzo daleka, wąska wiązka; POWTARZA JĄ KAŻDY KLON
+ *                       ze swojej pozycji w kierunku kursora, a cios zostawia
+ *                       kolejnego klona tam, gdzie stałeś
+ *   W  SHATTER          wszystkie klony pękają jednocześnie w nowę 360°
+ *   E  PHASE SWAP       zamiana miejsc z klonem najbliżej kursora
+ *   R  THOUSAND MIRRORS cztery klony naraz wokół gracza
+ *
+ * Rytm gałęzi to ZBIERANIE i WYDAWANIE: `Q` buduje stado samym graniem,
+ * `W` spienięża je za jeden potężny wybuch. Klony STOJĄ — cała gra polega
+ * na tym, gdzie je zostawisz, bo to z tych punktów będziesz ciął przez
+ * resztę walki. `E` jest jednocześnie wejściem i ucieczką, ale każdy skok
+ * przestawia jednego klona, więc nie da się uciekać bez rozstrajania
+ * własnego pola ostrzału.
+ *
+ * Drzewko stoi na dwóch filarach: LICZBIE klonów (`minionCount`, każdy to
+ * dodatkowa linia cięcia) i KRYTACH — bo cel jest już SOAKED z `Q`, czyli
+ * obrywa o 30% mocniej od wszystkiego, co go trafi.
+ */
+const OTTER_MIRROR: TalentBranch = {
+  id: 'ott-mirror',
+  name: 'MIRROR TIDE',
+  tiers: [
+    specTier(
+      spec('ott-mirror', 'MIRROR TIDE', 'critChance', 10,
+        'Q lance (clones repeat it) · W shatter · E swap · R four clones',
+        {
+          skills: ['mirror-lance', 'mirror-shatter', 'phase-swap', 'thousand-mirrors'],
+        }),
+    ),
+    {
+      requiresInBranch: 0,
+      talents: [
+        passive('mir-sharp', 'Sharp Reflection', 'minionDamage', 30, 5, 'CLONE damage'),
+        passive('mir-instinct', 'Killer Instinct', 'critChance', 3, 5),
+      ],
+    },
+    {
+      requiresInBranch: 5,
+      talents: [
+        // Każdy klon to kolejna linia cięcia przy jednym wciśnięciu `Q` —
+        // to jest najmocniejszy talent gałęzi i dlatego stoi tak wysoko.
+        passive('mir-more', 'More Mirrors', 'minionCount', 1, 3, 'max CLONES'),
+        passive('mir-deep', 'Deep Cut', 'critDamage', 15, 3),
+      ],
+    },
+    {
+      requiresInBranch: 10,
+      talents: [
+        passive('mir-perfect', 'Perfect Copy', 'minionDamage', 60, 3, 'CLONE damage'),
+        passive('mir-linger', 'Lingering Image', 'minionDuration', 45, 3, 'CLONE duration'),
+      ],
+    },
+    {
+      requiresInBranch: 15,
+      talents: [
+        {
+          /**
+           * Zwieńczenie: `Q` zostawia DWA klony zamiast jednego. Stado
+           * przestaje narastać liniowo i zaczyna podwajać się co wciśnięcie,
+           * aż do sufitu z `maxActive` — a `W` ma wtedy co spieniężyć.
+           */
+          id: 'mir-apex',
+          name: 'HALL OF MIRRORS',
+          desc: 'Q leaves TWO clones · +40% critical damage',
+          kind: 'critDamage',
+          valuePerRank: 40,
+          maxRank: 2,
+          grantsSkills: ['mirror-lance-twin'],
+        },
+      ],
+    },
+  ],
+};
+
+/**
+ * GORYL — IRON GRIP. Tank-kotwica, który mimo roli obrońcy ma JEDEN naprawdę
+ * wielki cios.
+ *
+ *   Q  IRON GRIP    wyrywa wroga z hordy i dociąga go pod cios (`hook`)
+ *   W  WAR ROAR     ryk: ściąga aggro całej hordy na siebie + pancerz (`taunt`)
+ *   E  GROUND SLAM  nova 360° z wielkim odrzutem — peel dla drużyny
+ *   R  TITAN SMASH  frontalny grzmot o mnożniku ×12 — największy pojedynczy
+ *                   cios w grze; combo z Q (a po apeksie z ogłuszeniem z Q)
+ *
+ * Drzewko stoi na pancerzu i sile: goryl przeżywa ściągniętą na siebie hordę
+ * (armor, maxHp), a TITAN SMASH rośnie z `strength`, więc tank jest jednocześnie
+ * groźbą dla elit. Zwieńczenie zamienia `Q` na wariant OGŁUSZAJĄCY, dając pewne
+ * okno na największy cios.
+ */
+const GORILLA_IRONGRIP: TalentBranch = {
+  id: 'gor-iron',
+  name: 'IRON GRIP',
+  tiers: [
+    specTier(
+      spec('gor-iron', 'IRON GRIP', 'armor', 4,
+        'Q grip · W roar (taunt+armor) · E slam · R TITAN SMASH',
+        { skills: ['gor-grip', 'gor-roar', 'gor-slam', 'gor-smash'] }),
+    ),
+    {
+      requiresInBranch: 0,
+      talents: [
+        passive('gor-iron-hp', 'Thick Hide', 'maxHp', rankValue('maxHp'), 5),
+        passive('gor-iron-str', 'Heavy Hands', 'strength', rankValue('strength'), 5),
+      ],
+    },
+    {
+      requiresInBranch: 5,
+      talents: [
+        passive('gor-iron-arm', 'Bulwark', 'armor', rankValue('armor') * 1.6, 3),
+        passive('gor-iron-cd', 'Adrenaline', 'cooldown', rankValue('cooldown') * 1.6, 3),
+      ],
+    },
+    {
+      requiresInBranch: 10,
+      talents: [
+        // TITAN SMASH żyje z siły — to filar „tank z jednym wielkim ciosem".
+        passive('gor-iron-str2', 'Crushing Might', 'strength', rankValue('strength') * 2, 3),
+        passive('gor-iron-kb', 'Shockwave', 'knockback', rankValue('knockback') * 2, 3),
+      ],
+    },
+    {
+      requiresInBranch: 15,
+      talents: [
+        {
+          /**
+           * Zwieńczenie: chwyt (`Q`) OGŁUSZA dociągniętego, więc masz pewne okno
+           * na TITAN SMASH prosto w jego twarz. Grab przestaje być samym
+           * repozycjonowaniem, a staje się setupem pod największy cios w grze.
+           */
+          id: 'gor-iron-apex',
+          name: 'CRUSHING GRIP',
+          desc: 'IRON GRIP stuns what it pulls · +strength',
+          kind: 'strength',
+          valuePerRank: rankValue('strength') * 3,
+          maxRank: 2,
+          grantsSkills: ['gor-grip-stun'],
+        },
+      ],
+    },
+  ],
+};
+
+/**
+ * NIETOPERZ — NIGHT TERROR. Wampir: krucha klasa (75 HP), która NIE MA stożka —
+ * żyje z sączenia życia.
+ *
+ *   Q  LIFE SIPHON  kanałujesz HP z JEDNEGO celu do siebie (`channel/drain`)
+ *   W  NIGHTMARE    kanałowy pierścień grozy: rani WSZYSTKICH wokół, leczy cię
+ *                   z zadanych obrażeń i przeraża trafionych (`channel/drainNova`)
+ *   E  BLOOD FRENZY +prędkość ataku — mnoży leech z pasywki BLOODSONG
+ *   R  BAT SWARM    rój nietoperzy polujących samodzielnie
+ *
+ * Cała gałąź to ryzyko/nagroda: kanał leczy tylko, gdy STOISZ w tłumie, a każdy
+ * ruch go przerywa. Drzewko stoi na `leech` i `attackSpeed` (sustain), z zapasem
+ * `maxHp`, bo bat jest z papieru. Zwieńczenie podnosi lifesteal NIGHTMARE do
+ * PEŁNI zadanych obrażeń — od tego momentu stanie w hordzie leczy do pełna.
+ */
+const BAT_NIGHTTERROR: TalentBranch = {
+  id: 'bat-terror',
+  name: 'NIGHT TERROR',
+  tiers: [
+    specTier(
+      spec('bat-terror', 'NIGHT TERROR', 'leech', 1,
+        'Q siphon · W nightmare (AoE drain+fear) · E frenzy · R bat swarm',
+        { skills: ['bat-drain', 'bat-nightmare', 'bat-frenzy', 'bat-swarm'] }),
+    ),
+    {
+      requiresInBranch: 0,
+      talents: [
+        passive('bat-terror-as', 'Frenzied Wings', 'attackSpeed', rankValue('attackSpeed'), 5),
+        passive('bat-terror-leech', 'Bloodthirst', 'leech', rankValue('leech'), 5),
+      ],
+    },
+    {
+      requiresInBranch: 5,
+      talents: [
+        passive('bat-terror-hp', 'Dark Vitality', 'maxHp', rankValue('maxHp') * 1.6, 3),
+        passive('bat-terror-str', 'Sharp Fangs', 'strength', rankValue('strength') * 1.6, 3),
+      ],
+    },
+    {
+      requiresInBranch: 10,
+      talents: [
+        passive('bat-terror-leech2', 'Sanguine', 'leech', rankValue('leech') * 2, 3),
+        passive('bat-terror-cd', 'Restless', 'cooldown', rankValue('cooldown') * 2, 3),
+      ],
+    },
+    {
+      requiresInBranch: 15,
+      talents: [
+        {
+          /**
+           * Zwieńczenie: NIGHTMARE leczy z PEŁNI zadanych obrażeń (a nie połowy),
+           * więc stanie w gęstej hordzie odbija bata do pełna. To zamienia
+           * krewnego z papieru w nieśmiertelnego-dopóki-sączy.
+           */
+          id: 'bat-terror-apex',
+          name: 'BLOOD MOON',
+          desc: 'NIGHTMARE heals for ALL damage it deals · +leech',
+          kind: 'leech',
+          valuePerRank: rankValue('leech') * 3,
+          maxRank: 2,
+          grantsSkills: ['', 'bat-nightmare-blood'],
+        },
+      ],
+    },
+  ],
+};
+
+/**
+ * JEŻ — BASTION. Builder: nie walczy wprost, tylko stawia JEDEN turret i mury,
+ * a hordę wpuszcza w killbox.
+ *
+ *   Q  DEPLOY SENTRY  postaw działko; jeśli już stoi, PRZENIEŚ je (jeden turret)
+ *   W  SPIKE WALL     mur kolców kanalizujący hordę w ostrzał
+ *   E  OVERCLOCK      +prędkość ataku (przyspiesza CIEBIE i turret naraz)
+ *   R  LOCKDOWN       pierścień muru — zamyka hordę w klatce z turretem
+ *
+ * Klucz: turret skaluje się TWOIMI statami (`scalesWithOwner`), więc drzewko
+ * pompuje `attackSpeed` + `critChance` + `strength` — te same punkty karmią
+ * twój cios i twoje działko. Dlatego OVERCLOCK i cała inwestycja w obrażenia
+ * wchodzą w turret bez ani jednej linijki kodu specyficznego dla niego.
+ * Zwieńczenie sprawia, że bolty ODBIJAJĄ się po hordzie — jeden turret staje
+ * się czyścicielem tłumu.
+ */
+const HEDGEHOG_BASTION: TalentBranch = {
+  id: 'hog-bastion',
+  name: 'BASTION',
+  tiers: [
+    specTier(
+      spec('hog-bastion', 'BASTION', 'attackSpeed', 15,
+        'Q sentry (moves, scales with YOU) · W spike wall · E overclock · R lockdown',
+        { skills: ['deploy-sentry', 'spike-wall', 'overclock', 'lockdown'] }),
+    ),
+    {
+      requiresInBranch: 0,
+      talents: [
+        // Atak speed i kryt LECĄ WPROST W TURRET (`scalesWithOwner`) — to filary
+        // DPS działka, nie wypełniacze.
+        passive('hog-bas-as', 'Rapid Fire', 'attackSpeed', rankValue('attackSpeed'), 5),
+        passive('hog-bas-crit', 'Calibrated', 'critChance', rankValue('critChance'), 5),
+      ],
+    },
+    {
+      requiresInBranch: 5,
+      talents: [
+        passive('hog-bas-str', 'Heavy Rounds', 'strength', rankValue('strength') * 1.6, 3),
+        passive('hog-bas-hp', 'Reinforced Plate', 'maxHp', rankValue('maxHp') * 1.6, 3),
+      ],
+    },
+    {
+      requiresInBranch: 10,
+      talents: [
+        passive('hog-bas-critd', 'Armor Piercing', 'critDamage', rankValue('critDamage') * 2, 3),
+        passive('hog-bas-cd', 'Field Kit', 'cooldown', rankValue('cooldown') * 2, 3),
+      ],
+    },
+    {
+      requiresInBranch: 15,
+      talents: [
+        {
+          /**
+           * Zwieńczenie: bolty turreta ODBIJAJĄ się na kolejnych wrogów. Jeden
+           * turret przestaje bić w pojedynczy cel, a zaczyna przelewać się przez
+           * hordę — bez tworzenia drugiego działka (patrz `turretBoltChains`).
+           */
+          id: 'hog-bas-apex',
+          name: 'OVERCHARGE',
+          desc: 'SENTRY bolts chain through the horde · +attack speed',
+          kind: 'attackSpeed',
+          valuePerRank: rankValue('attackSpeed') * 3,
+          maxRank: 2,
+          grantsTurretChains: 3,
+        },
+      ],
+    },
+  ],
+};
+
+/**
  * Drzewka wszystkich klas. Nazwy gałęzi są tematyczne (gdd.md 5.4), ale poza
  * kretem ich zawartość jest PLACEHOLDEREM z pasywów — do zaprojektowania.
  */
@@ -850,12 +1252,12 @@ export const CLASS_TALENTS: ClassTalents[] = [
   { classId: 'fox',      branches: [FOX_CHRONO, FOX_ARCANE,                                                comingSoon('fox-3', 'TRICKSTER')] },
   { classId: 'hare',     branches: [HARE_SLIPSTREAM, HARE_SUMMONER,                                      comingSoon('hare-3', 'AURA MASTER')] },
   { classId: 'mole',     branches: [MOLE_SNIPER,                                                          comingSoon('mole-2', 'ENGINEER'),   comingSoon('mole-3', 'BURROWER')] },
-  { classId: 'hedgehog', branches: [passiveBranch('hog-bramble', 'BRAMBLE', 'thorns', 'armor'),            comingSoon('hog-2', 'CURL'),        comingSoon('hog-3', 'QUILL STORM')] },
-  { classId: 'bat',      branches: [passiveBranch('bat-blood', 'BLOODSONG', 'leech', 'attackSpeed'),       comingSoon('bat-2', 'SONAR'),       comingSoon('bat-3', 'NIGHT TERROR')] },
-  { classId: 'gorilla',  branches: [passiveBranch('gor-wreck', 'WRECKER', 'strength', 'knockback'),        comingSoon('gor-2', 'WARBEAT'),     comingSoon('gor-3', 'IRON GRIP')] },
+  { classId: 'hedgehog', branches: [passiveBranch('hog-bramble', 'BRAMBLE', 'thorns', 'armor'),            comingSoon('hog-2', 'CURL'),        HEDGEHOG_BASTION] },
+  { classId: 'bat',      branches: [passiveBranch('bat-blood', 'BLOODSONG', 'leech', 'attackSpeed'),       comingSoon('bat-2', 'SONAR'),       BAT_NIGHTTERROR] },
+  { classId: 'gorilla',  branches: [passiveBranch('gor-wreck', 'WRECKER', 'strength', 'knockback'),        comingSoon('gor-2', 'WARBEAT'),     GORILLA_IRONGRIP] },
   { classId: 'rat',      branches: [passiveBranch('rat-plague', 'PLAGUEBEARER', 'attackSpeed', 'strength'), comingSoon('rat-2', 'SWARM'),      comingSoon('rat-3', 'SCURRY')] },
   { classId: 'boar',     branches: [BOAR_ENGINEER, passiveBranch('boar-stamp', 'STAMPEDE', 'knockback', 'maxHp'), comingSoon('boar-3', 'TUSKS')] },
-  { classId: 'otter',    branches: [passiveBranch('ott-tide', 'LIFETIDE', 'regen', 'maxHp'),               comingSoon('ott-2', 'CURRENT'),     comingSoon('ott-3', 'PLAYFUL')] },
+  { classId: 'otter',    branches: [OTTER_TIDECALLER, OTTER_MIRROR,                                       comingSoon('ott-3', 'PLAYFUL')] },
   { classId: 'hyena',    branches: [HYENA_NECRO, passiveBranch('hy-scav', 'SCAVENGER', 'strength', 'leech'), comingSoon('hy-3', 'CACKLE')] },
 ];
 

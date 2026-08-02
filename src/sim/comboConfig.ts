@@ -41,6 +41,8 @@ export interface ArmChainEffect {
   damageMult: number;
   /** Po tylu tickach uzbrojenie wygasa niewykorzystane. */
   armTicks: number;
+  /** Wygląd pocisku dla renderu (pusty = kula). */
+  visual?: string;
 }
 
 /** POLE — stawia jednostkę z `minionsConfig.ts` w punkcie pod kursorem. */
@@ -95,6 +97,7 @@ export const COMBOS: ComboDef[] = [
       chainFalloff: 0.92,
       damageMult: 1.6,
       armTicks: secs(6),
+      visual: 'lightning',
     },
   },
   {

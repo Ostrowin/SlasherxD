@@ -9,14 +9,15 @@ import type { MetaEffectKind } from './metaConfig';
 import {
   dashById, DEFAULT_SKILL_ID, skillById,
   type DashDef, type SkillDef, type SummonSkill, type ProjectileSkill,
-  type BlinkSkill,
+  type BlinkSkill, type PhaseSwapSkill,
+  type HookSkill, type TauntSkill, type ChannelSkill, type WallSkill,
 } from './skillsConfig';
 import {
   MINION_POOL_SIZE, MINIONS, minionById, type MinionDef,
 } from './minionsConfig';
 import { COMBOS, COMBO_BUFFER, COMBO_WINDOW_TICKS } from './comboConfig';
 import {
-  AURAS, MOB_STATUS_SLOTS, STATUSES, statusIndexById,
+  AURAS, MOB_STATUS_SLOTS, STATUSES, auraById, statusIndexById,
 } from './statusConfig';
 import {
   ALPHA_PACK, branchesFor, PROGRESSION, talentSlotsFor, xpForLevel, xpPerWaveCleared,
@@ -182,6 +183,14 @@ export interface Mob {
   lastSlamTick: number;
   /** Indeks gracza, na którego wróg aktualnie poluje. */
   targetPlayer: number;
+  /**
+   * PROWOKACJA (`TauntSkill`). Dopóki `tauntUntilTick > tick`, wróg jest
+   * zmuszony atakować gracza `tauntedBy`, ignorując to, kto stoi bliżej.
+   * Trzymamy ABSOLUTNY tick (nie licznik), żeby recyklowany slot poola nie
+   * odziedziczył cudzej prowokacji — ten sam wzorzec co `chainMark`/`lastHitTick`.
+   */
+  tauntUntilTick: number;
+  tauntedBy: number;
 
   /** Indeks w BOSSES (-1 = zwykły wróg). Boss to po prostu wyróżniony mob, */
   /** dzięki czemu cała istniejąca logika trafień działa dla niego za darmo. */
@@ -223,6 +232,18 @@ export interface Minion {
   stateTicks: number;
   attackIndex: number;
   spawnTick: number;
+  /**
+   * Ile ataków jednostce jeszcze zostało (`MinionDef.charges`).
+   * 0 = bez limitu — zwykła wieżyczka nie liczy ładunków.
+   */
+  chargesLeft: number;
+  /* ── Komenda gracza (`MinionDef.command`) ───────────────────────────── */
+  /** Ticki wykonywania komendy; 0 = działa normalnie. */
+  commandTicks: number;
+  commandX: number;
+  commandY: number;
+  /** Cooldown komendy — osobny od cooldownu ataku. */
+  commandCd: number;
 }
 
 export interface Projectile {
@@ -262,6 +283,13 @@ export interface Projectile {
   chainId: number;
   /** Komu przypisać zabójstwo (-1 = nikomu konkretnie). */
   ownerIndex: number;
+  /**
+   * Wygląd pocisku dla renderu (np. `'lightning'`). Pusty = domyślna kula.
+   * To JEDYNE pole czysto kosmetyczne — symulacja go nie czyta, ale musi je
+   * nieść, bo tylko ona wie, kto wypuścił dany pocisk. Render nie widzi
+   * skilli, widzi tylko pool pocisków.
+   */
+  visual: string;
 }
 
 /** Item leżący na ziemi (drop z moba), czeka na zebranie albo despawn. */
@@ -272,6 +300,56 @@ export interface Pickup {
   x: number;
   y: number;
   ttl: number;
+}
+
+/**
+ * Lecąca lina dociągnięcia (`HookSkill`). Stan w poolu, silnik w `stepHooks`.
+ * Faza `out` = leci w kursor i szuka celu; `back` = zwija się (ciągnąc wroga
+ * albo — w trybie `pullSelf` — gracza).
+ */
+export interface Hook {
+  alive: boolean;
+  ownerIndex: number;
+  x: number;
+  y: number;
+  prevX: number;
+  prevY: number;
+  dirX: number;
+  dirY: number;
+  speed: number;
+  /** Ile px już przeleciała — po przekroczeniu `maxRange` wraca pusta. */
+  travelled: number;
+  maxRange: number;
+  width: number;
+  damage: number;
+  mode: 'pullTarget' | 'pullSelf';
+  /** Indeks statusu z STATUSES nakładanego chwyconemu (-1 = żaden). */
+  status: number;
+  grabsAllies: boolean;
+  phase: 'out' | 'back';
+  /** Indeks chwyconego moba w `mobs` (-1 = lina pusta). */
+  grabbedMob: number;
+  /** Tick wystrzału — render rysuje z tego linę. */
+  startTick: number;
+}
+
+/**
+ * Tymczasowa ściana (`WallSkill`) — JEDEN odcinek. Pierścień to kilka slotów
+ * poola naraz. Kolizja (blokowanie pathingu/pocisków) jeszcze niepodpięta —
+ * patrz TODO w `stepWalls`.
+ */
+export interface Wall {
+  alive: boolean;
+  ownerIndex: number;
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  thickness: number;
+  ttl: number;
+  blocksProjectiles: boolean;
+  /** Tick postawienia — render robi z tego animację wyrastania. */
+  startTick: number;
 }
 
 /**
@@ -308,6 +386,14 @@ export interface Player {
   moveTargetX: number;
   moveTargetY: number;
   hasMoveTarget: boolean;
+  /**
+   * WYBRANY WRÓG (unit-select). Indeks w `mobs` (-1 = brak). RMB na wrogu go
+   * ustawia, RMB na pustej ziemi zdejmuje. Dopóki żyje: gracz do niego idzie,
+   * a auto-atak bije WYŁĄCZNIE jego; zasilają się nim też skille single-target
+   * (hook, drain). Czyszczony w `killMob`, więc nigdy nie wskazuje na slot,
+   * który pool oddał już nowemu wrogowi.
+   */
+  targetMob: number;
 
   /* ── Doskok (spacja) ────────────────────────────────────────────────── */
   dashCooldown: number;
@@ -368,6 +454,13 @@ export interface Player {
   minionHpMult: number;
   minionDurationMult: number;
   minionCountBonus: number;
+  /**
+   * Ile razy bolt turreta skalowanego graczem (`scalesWithOwner`) ODBIJA się
+   * na kolejnych wrogów. 0 = nie odbija. Nadaje to zwieńczenie buildera
+   * (`OVERCHARGE`) przez `grantsTurretChains` — jeden turret zaczyna czyścić
+   * hordę, zamiast bić w jeden cel.
+   */
+  turretBoltChains: number;
 
   /* ── Combo (comboConfig.ts) — dziś wyłącznie Thunder Fang wilka ─────── */
   /** Combo, które gracz zna. Puste = klawisze działają zwyczajnie. */
@@ -394,6 +487,8 @@ export interface Player {
   meleeChainFalloff: number;
   /** Obrażenia rykoszetu = obrażenia zwarcia × to. */
   meleeChainDamageMult: number;
+  /** Wygląd pocisku rykoszetu (Thunder Fang = `'lightning'`). */
+  meleeChainVisual: string;
 
   /**
    * WZMOCNIENIE rykoszetu — jeden mechanizm pod dwa różne zastosowania:
@@ -411,12 +506,25 @@ export interface Player {
   chainBuffMult: number;
   /** Nazwa na HUD; pusta = brak wzmocnienia. */
   chainBuffName: string;
+  /** Wygląd rykoszetu z wzmocnienia (Storm Chain = lightning, Surge = strzała). */
+  chainBuffVisual: string;
 
   /* ── Wzmocnienie na czas (`EmpowerSkill`) ───────────────────────────── */
   /** Ile ticków jeszcze trwa; 0 = brak. */
   empowerTicks: number;
   /** +% prędkości ataku na czas trwania. */
   empowerAttackSpeed: number;
+
+  /* ── Kanałowanie (`ChannelSkill`) ───────────────────────────────────── */
+  /** Ile ticków kanału zostało; 0 = nie kanałuje. Ruch to zeruje. */
+  channelTicks: number;
+  /** Id kanałowanej umiejętności — z niej bierzemy `payload` co tyknięcie. */
+  channelSkillId: string;
+  /** Środek efektu (punkt pod kursorem w chwili startu — używa go vortex). */
+  channelX: number;
+  channelY: number;
+  /** Tick startu — render rysuje z tego wiązkę/wir, a krok pomija nim break. */
+  lastChannelTick: number;
 
   /* ── Blink arrow (`BlinkSkill`) ─────────────────────────────────────── */
   /**
@@ -443,6 +551,8 @@ export interface Player {
   projectileCountBonus: number;
   /** +tyle odbić na kolejnego wroga. */
   chainCountBonus: number;
+  /** Mnożnik obrażeń rykoszetu/błyskawicy (1 = bez zmian). */
+  chainDamageMult: number;
 
   /* ── Wataha (ALPHA_PACK w talentsConfig.ts) ─────────────────────────── */
   /** Czy gracz ma mechanikę watahy (specjalizacja ALPHA PACK). */
@@ -518,6 +628,14 @@ export interface Player {
  */
 const PORTAL_REUSE_TICKS = Math.round(0.9 * C.TICK_RATE);
 
+/** Rozmiary pul nowych prymitywów — z zapasem na co-op (8 graczy). */
+const HOOK_POOL_SIZE = 8;
+/** Pierścień (`shape: 'ring'`) zjada kilka slotów naraz, stąd większa pula. */
+const WALL_POOL_SIZE = 32;
+
+/** Zapas wokół promienia wroga przy wskazywaniu celu RMB — łatwiej trafić. */
+const TARGET_PICK_MARGIN = 22;
+
 /** Czy bufor wciśnięć KOŃCZY SIĘ podaną sekwencją (dopasowanie combo). */
 function seqEndsWith(buffer: number[], sequence: number[]): boolean {
   if (buffer.length < sequence.length) return false;
@@ -552,6 +670,10 @@ export class World {
   /** Sojusznicze jednostki (totemy, wskrzeszeni, przywołańcy). */
   readonly minions: Minion[] = [];
   readonly pickups: Pickup[] = [];
+  /** Lecące liny dociągnięcia (`HookSkill`) — pool o stałym rozmiarze. */
+  readonly hooks: Hook[] = [];
+  /** Tymczasowe ściany (`WallSkill`) — jeden slot = jeden odcinek. */
+  readonly walls: Wall[] = [];
   /** Przeszkody wygenerowane z seeda w konstruktorze — stałe przez cały run. */
   readonly obstacles: Obstacle[] = [];
 
@@ -639,7 +761,7 @@ export class World {
         alive: false, defIndex: 0, x: 0, y: 0, prevX: 0, prevY: 0,
         hp: 0, speed: 0, chainMark: -1, attackCooldown: 0, lastHitTick: -100,
         state: 'chase', stateTicks: 0, windupStartTick: -100, lastSlamTick: -100,
-        targetPlayer: 0,
+        targetPlayer: 0, tauntUntilTick: -100, tauntedBy: 0,
         bossIndex: -1, phaseIndex: 0, attackIndex: 0,
         chargeVX: 0, chargeVY: 0, chargeRadius: 0, chargeDamage: 0,
       });
@@ -649,7 +771,7 @@ export class World {
         alive: false, friendly: false,
         x: 0, y: 0, prevX: 0, prevY: 0, vx: 0, vy: 0, ttl: 0, damage: 0,
         chainsLeft: 0, chainRange: 0, chainFalloff: 1, blastRadius: 0,
-        chainId: 0, ownerIndex: -1,
+        chainId: 0, ownerIndex: -1, visual: '',
       });
     }
     for (let i = 0; i < MINION_POOL_SIZE; i++) {
@@ -657,10 +779,25 @@ export class World {
         alive: false, defIndex: 0, ownerIndex: 0,
         x: 0, y: 0, prevX: 0, prevY: 0, hp: 0, maxHp: 0, ttl: 0,
         attackCooldown: 0, state: 'idle', stateTicks: 0, attackIndex: 0, spawnTick: 0,
+        chargesLeft: 0, commandTicks: 0, commandX: 0, commandY: 0, commandCd: 0,
       });
     }
     for (let i = 0; i < DROP_CONFIG.maxGroundItems; i++) {
       this.pickups.push({ alive: false, defIndex: 0, x: 0, y: 0, ttl: 0 });
+    }
+    for (let i = 0; i < HOOK_POOL_SIZE; i++) {
+      this.hooks.push({
+        alive: false, ownerIndex: 0, x: 0, y: 0, prevX: 0, prevY: 0,
+        dirX: 1, dirY: 0, speed: 0, travelled: 0, maxRange: 0, width: 0,
+        damage: 0, mode: 'pullTarget', status: -1, grabsAllies: false,
+        phase: 'out', grabbedMob: -1, startTick: -1,
+      });
+    }
+    for (let i = 0; i < WALL_POOL_SIZE; i++) {
+      this.walls.push({
+        alive: false, ownerIndex: 0, x1: 0, y1: 0, x2: 0, y2: 0,
+        thickness: 0, ttl: 0, blocksProjectiles: false, startTick: -1,
+      });
     }
 
     this.generateObstacles();
@@ -672,10 +809,10 @@ export class World {
       x: C.WORLD_W / 2, y: C.WORLD_H / 2, prevX: C.WORLD_W / 2, prevY: C.WORLD_H / 2,
       hp: cls.maxHp, dead: false, left: false, hurtCooldown: 0,
       facingX: 1, facingY: 0,
-      moveTargetX: 0, moveTargetY: 0, hasMoveTarget: false,
-      skillIds: [DEFAULT_SKILL_ID, '', ''],
+      moveTargetX: 0, moveTargetY: 0, hasMoveTarget: false, targetMob: -1,
+      skillIds: [DEFAULT_SKILL_ID, '', '', ''],
       activeDashId: cls.dashId, impactRadiusMult: 1,
-      skillCooldowns: [0, 0, 0],
+      skillCooldowns: [0, 0, 0, 0],
       dashId: cls.dashId, specIndex: -1,
       dashCooldown: 0, dashTicksLeft: 0, dashVX: 0, dashVY: 0, lastDashTick: -1, lastDashImpactTick: -1,
       meleeCooldown: cls.meleeIntervalTicks, lastMeleeTick: -1,
@@ -685,17 +822,19 @@ export class World {
       leechHealPerKill: 0, magnetBonus: 0, knockbackMult: 1, thornsDamage: 0,
       dropChanceBonus: 0, raiseRadius: 0,
       minionDamageMult: 1, minionHpMult: 1, minionDurationMult: 1, minionCountBonus: 0,
-      projectileCountBonus: 0, chainCountBonus: 0,
+      turretBoltChains: 0,
+      projectileCountBonus: 0, chainCountBonus: 0, chainDamageMult: 1,
       comboIds: [], comboSeq: [], comboIdleTicks: 0,
       comboCooldowns: COMBOS.map(() => 0),
       dashBoltCombo: -1,
       chainBuffTicks: 0, chainBuffUses: 0, chainBuffChains: 0,
-      chainBuffRange: 0, chainBuffFalloff: 1, chainBuffMult: 1, chainBuffName: '',
+      chainBuffRange: 0, chainBuffFalloff: 1, chainBuffMult: 1, chainBuffName: '', chainBuffVisual: '',
       empowerTicks: 0, empowerAttackSpeed: 0,
+      channelTicks: 0, channelSkillId: '', channelX: 0, channelY: 0, lastChannelTick: -1,
       blinkX: 0, blinkY: 0, blinkTicks: 0, lastBlinkTick: -1,
       portalCooldown: 0, lastPortalTick: -1,
       lastComboTick: -1, lastComboIndex: -1,
-      meleeChains: 0, meleeChainRange: 0, meleeChainFalloff: 1, meleeChainDamageMult: 1,
+      meleeChains: 0, meleeChainRange: 0, meleeChainFalloff: 1, meleeChainDamageMult: 1, meleeChainVisual: '',
       packLeader: false, packInstinct: 0, allyCount: 0,
       auraIds: [], auraTicks: AURAS.map(() => 0),
       auraDamageMult: 1, auraSpeedMult: 1, auraAttackSpeedMult: 1, auraArmorFlat: 0,
@@ -785,12 +924,14 @@ export class World {
       }
     }
     if (slot.def.grantsPack) p.packLeader = true;
+    if (slot.def.grantsTurretChains) p.turretBoltChains = slot.def.grantsTurretChains;
     if (slot.def.grantsRicochet) {
       const r = slot.def.grantsRicochet;
       p.meleeChains = r.chains;
       p.meleeChainRange = r.range;
       p.meleeChainFalloff = r.falloff;
       p.meleeChainDamageMult = r.damageMult;
+      p.meleeChainVisual = r.visual ?? '';
     }
     // Aury się SUMUJĄ — gracz może roztaczać kilka naraz, więc tylko dokładamy.
     if (slot.def.grantsAura && !p.auraIds.includes(slot.def.grantsAura)) {
@@ -945,6 +1086,7 @@ export class World {
     this.stepAuras();
     this.stepMinions();
     this.stepProjectiles();
+    this.stepHooks();
     for (const p of this.players) {
       if (p.dead) continue;
       this.applyMelee(p);
@@ -955,6 +1097,10 @@ export class World {
     for (const p of this.players) {
       if (!p.dead) this.applyRegen(p);
     }
+    // Kanałowanie i ściany rozliczamy PO ruchu i castach: kanał sprawdza, czy
+    // gracz się w tym ticku ruszył (przerwanie), a ściana odlicza swój czas.
+    this.stepChannels(inputOf);
+    this.stepWalls();
 
     // Fala z bossem nie kończy się na czas — trwa, dopóki boss żyje.
     if (this.isBossWave) {
@@ -1251,6 +1397,8 @@ export class World {
 
     // Błyskawica sypie rykoszetami W LOCIE (combo `Q→W→Q`).
     if (p.dashBoltCombo >= 0) this.stepDashBolts(p);
+    // Fala orze wszystko po DRODZE, a nie na końcu (surf wydry).
+    if (dash.ride) this.rideWave(p, dash);
 
     // Lądowanie. Uderzenie liczymy w ticku, w którym doskok się KOŃCZY —
     // także gdy urwała go przeszkoda albo wielki wróg, więc odbicie boli.
@@ -1280,7 +1428,7 @@ export class World {
       const d2 = dx * dx + dy * dy;
       if (d2 > reach * reach) return;
 
-      m.hp -= this.rollDamage(p, damage);
+      m.hp -= this.rollDamage(p, damage, m);
       m.lastHitTick = this.tick;
       if (m.hp <= 0) {
         this.killMob(m, p);
@@ -1298,6 +1446,30 @@ export class World {
     });
   }
 
+  /**
+   * Uderzenie fali W TRAKCIE jazdy (`DashDef.ride`) — odwrotność `dashImpact`,
+   * które pada raz, na końcu. Tu liczy się droga, więc bijemy cyklicznie.
+   *
+   * To jest zwykła nowa (`coneCos: -1`) wokół gracza, czyli ten sam kod, co
+   * Shock Nova zająca — fala nie potrzebowała własnego wykrywania trafień.
+   * Rytm bierzemy z `dashTicksLeft`, a nie z osobnego licznika na graczu:
+   * ta liczba i tak maleje o 1 na tick, więc jest darmowym zegarem, który
+   * nie może się rozjechać między klientami w co-opie.
+   */
+  private rideWave(p: Player, dash: DashDef): void {
+    const ride = dash.ride;
+    if (!ride || p.dashTicksLeft % ride.hitEveryTicks !== 0) return;
+    // Szerokość fali rośnie z zasięgiem gracza — dlatego talenty na `range`
+    // w gałęzi TIDECALLER poszerzają falę, zamiast być martwą statystyką.
+    const radius = ride.hitRadius * p.rangeMult;
+    this.applyCone(
+      p, p.x, p.y, p.facingX, p.facingY,
+      radius, this.meleeDamageOf(p) * ride.damageMult, -1,
+      ride.knockback * p.knockbackMult,
+      ride.status ? statusIndexById(ride.status) : -1,
+    );
+  }
+
   /** Promień fali uderzeniowej po ulepszeniach — render rysuje z tego okrąg. */
   dashImpactRadiusOf(p: Player, dash: DashDef): number {
     return dash.impactRadius * p.impactRadiusMult;
@@ -1312,12 +1484,47 @@ export class World {
     // Doskok ma pierwszeństwo przed chodzeniem do celu.
     if (this.stepDash(p, input)) return;
 
-    // Nowy cel z RMB (klik lub trzymanie) — cel przycięty do granic świata.
+    // Rozkaz RMB: wróg pod kursorem = wskaż go jako cel ataku; pusta ziemia =
+    // zwykły ruch (i zdejmij poprzedni cel). Cel rozwiązujemy w SYMULACJI ze
+    // współrzędnych świata, więc każdy klient w co-opie wskaże tego samego moba.
     if (input.hasTarget) {
-      p.moveTargetX = Math.min(Math.max(input.targetX, C.PLAYER_RADIUS), C.WORLD_W - C.PLAYER_RADIUS);
-      p.moveTargetY = Math.min(Math.max(input.targetY, C.PLAYER_RADIUS), C.WORLD_H - C.PLAYER_RADIUS);
-      p.hasMoveTarget = true;
+      const picked = this.mobAtPoint(input.targetX, input.targetY);
+      if (picked >= 0) {
+        p.targetMob = picked;
+      } else {
+        p.targetMob = -1;
+        p.moveTargetX = Math.min(Math.max(input.targetX, C.PLAYER_RADIUS), C.WORLD_W - C.PLAYER_RADIUS);
+        p.moveTargetY = Math.min(Math.max(input.targetY, C.PLAYER_RADIUS), C.WORLD_H - C.PLAYER_RADIUS);
+        p.hasMoveTarget = true;
+      }
     }
+
+    // GOŃ WYBRANY CEL: dopóki żyje, idź w jego stronę i zatrzymaj się tuż
+    // w zasięgu zwarcia (tam auto-atak bije już tylko jego). Cel zniknął —
+    // zdejmujemy go i wracamy do zwykłego chodzenia.
+    if (p.targetMob >= 0) {
+      const m = this.mobs[p.targetMob];
+      if (m && m.alive) {
+        const rad = m.bossIndex >= 0 ? BOSSES[m.bossIndex].radius : ENEMIES[m.defIndex].radius;
+        const dx = m.x - p.x;
+        const dy = m.y - p.y;
+        const d = Math.sqrt(dx * dx + dy * dy) || 1;
+        const stop = Math.max(1, this.meleeRangeOf(p) + rad - 2);
+        if (d > stop) {
+          p.moveTargetX = m.x - (dx / d) * stop;
+          p.moveTargetY = m.y - (dy / d) * stop;
+          p.hasMoveTarget = true;
+        } else {
+          // W zasięgu — stój i patrz na cel (kierunek dla stożków i renderu).
+          p.hasMoveTarget = false;
+          p.facingX = dx / d;
+          p.facingY = dy / d;
+        }
+      } else {
+        p.targetMob = -1;
+      }
+    }
+
     if (!p.hasMoveTarget) return;
 
     let dx = p.moveTargetX - p.x;
@@ -1517,8 +1724,15 @@ export class World {
       if (!m.alive) continue;
       const def = ENEMIES[m.defIndex];
 
-      const target = this.nearestLivingPlayer(m.x, m.y);
+      let target = this.nearestLivingPlayer(m.x, m.y);
       if (!target) continue;
+      // PROWOKACJA (`TauntSkill`) nadpisuje wybór celu: sprowokowany wróg idzie
+      // na gracza, który go zawołał, nawet jeśli bliżej stoi ktoś inny. Wygasa
+      // sama przez porównanie ticków — bez licznika i bez czyszczenia na respawnie.
+      if (m.tauntUntilTick > this.tick) {
+        const caller = this.players[m.tauntedBy];
+        if (caller && !caller.dead) target = caller;
+      }
       m.targetPlayer = target.index;
 
       // Boss ma własny cykl ataków i fazy — obsługiwany osobno. Sprawdzenie
@@ -1533,17 +1747,35 @@ export class World {
       // `continue` zatrzymuje też odliczanie cooldownu ataku — o to chodzi.
       if (this.mobStunned(m)) continue;
 
-      let dx = target.x - m.x;
-      let dy = target.y - m.y;
-      const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-      dx /= dist;
-      dy /= dist;
+      // STRACH: wróg ucieka od najbliższego zagrożenia i NIE atakuje. Kierunek
+      // liczymy najpierw, bo zastępuje domyślne „na gracza"; resztę pętli
+      // (rozpychanie, ruch) współdzielimy ze zwykłym zachowaniem.
+      const feared = this.mobFeared(m);
+      const dist = Math.sqrt((target.x - m.x) ** 2 + (target.y - m.y) ** 2) || 1;
+      let dx: number;
+      let dy: number;
+      if (feared) {
+        const threat = this.nearestThreatTo(m.x, m.y) ?? target;
+        dx = m.x - threat.x;
+        dy = m.y - threat.y;
+        const d = Math.sqrt(dx * dx + dy * dy) || 1;
+        dx /= d;
+        dy /= d;
+        // Ucieczka przerywa zamach — inaczej po wygaśnięciu strachu wróg
+        // dokończyłby stary cios „z zaskoczenia".
+        m.state = 'chase';
+      } else {
+        dx = (target.x - m.x) / dist;
+        dy = (target.y - m.y) / dist;
+      }
 
-      // advance: 1 = biegnie na gracza, 0 = stoi (zamach, ładowanie, odpoczynek).
+      // advance: 1 = biegnie, 0 = stoi (zamach, ładowanie, odpoczynek).
       let advance = 1;
       if (m.attackCooldown > 0) m.attackCooldown--;
 
-      if (m.state === 'windup' || m.state === 'recover') {
+      if (feared) {
+        // Przestraszony tylko biegnie — pomijamy całą maszynę ataków.
+      } else if (m.state === 'windup' || m.state === 'recover') {
         advance = 0;
         m.stateTicks--;
         if (m.stateTicks <= 0) {
@@ -1790,7 +2022,7 @@ export class World {
     x: number, y: number, vx: number, vy: number, damage: number, friendly = false,
     opts: {
       chains?: number; chainRange?: number; chainFalloff?: number;
-      blastRadius?: number; ownerIndex?: number;
+      blastRadius?: number; ownerIndex?: number; visual?: string;
     } = World.PLAIN_SHOT,
   ): Projectile | null {
     for (let i = 0; i < this.projectiles.length; i++) {
@@ -1813,6 +2045,7 @@ export class World {
       p.chainFalloff = opts.chainFalloff ?? 1;
       p.blastRadius = opts.blastRadius ?? 0;
       p.ownerIndex = opts.ownerIndex ?? -1;
+      p.visual = opts.visual ?? '';
       p.chainId = this.nextChainId++;
       return p;
     }
@@ -1977,6 +2210,29 @@ export class World {
 
     const range = this.meleeRangeOf(p);
     const baseMeleeDamage = this.meleeDamageOf(p);
+
+    // FOCUS (unit-select): z wybranym celem auto-atak bije WYŁĄCZNIE jego — o ile
+    // jest w zasięgu (poza zasięgiem cios idzie w próżnię, bo gracz właśnie do
+    // niego podchodzi). Bez celu — dotychczasowe AoE (pełne koło).
+    if (p.targetMob >= 0) {
+      const idx = p.targetMob;
+      const m = this.mobs[idx];
+      if (m && m.alive) {
+        const reach =
+          range + (m.bossIndex >= 0 ? BOSSES[m.bossIndex].radius : ENEMIES[m.defIndex].radius);
+        const dx = m.x - p.x;
+        const dy = m.y - p.y;
+        if (dx * dx + dy * dy <= reach * reach) {
+          m.hp -= this.rollDamage(p, baseMeleeDamage, m);
+          m.lastHitTick = this.tick;
+          // Kill czyści `targetMob`, więc rykoszet strzela z zapamiętanego `idx`.
+          if (m.hp <= 0) this.killMob(m, p);
+          this.spawnMeleeRicochet(p, idx);
+        }
+      }
+      return;
+    }
+
     // Pierwszy trafiony jest źródłem rykoszetu (pasywka Thunder Fang).
     let firstHit = -1;
     this.hash.forEachNear(p.x, p.y, range + C.MOB_RADIUS_MAX, (i) => {
@@ -1987,7 +2243,7 @@ export class World {
       const dy = m.y - p.y;
       if (dx * dx + dy * dy > reach * reach) return;
       if (firstHit < 0) firstHit = i;
-      m.hp -= this.rollDamage(p, baseMeleeDamage);
+      m.hp -= this.rollDamage(p, baseMeleeDamage, m);
       m.lastHitTick = this.tick;
       if (m.hp <= 0) this.killMob(m, p);
     });
@@ -2004,11 +2260,24 @@ export class World {
    * obrażenia „przez losowanie". Losowość idzie z seedowanego RNG symulacji,
    * więc w co-opie każdy klient wylosuje ten sam kryt w tym samym ticku.
    */
-  private rollDamage(p: Player, base: number): number {
-    if (p.critChance <= 0) return base;
-    if (this.rng.next() * 100 >= p.critChance) return base;
+  private rollDamage(p: Player, base: number, target?: Mob): number {
+    /**
+     * PODATNOŚĆ celu mnoży trafienie, jeszcze przed rzutem na kryta.
+     *
+     * Do tej pory `vulnerability` wchodziło WYŁĄCZNIE w tyknięcia statusów
+     * i aur, więc `weaken` — opisany jako „wróg obrywa mocniej od wszystkiego"
+     * — nie robił nic ciosom gracza. Osłabienie działało na trucizny, ale nie
+     * na miecz, co jest odwrotnością tego, po co się je nakłada.
+     *
+     * `target` jest opcjonalny, bo pociski liczą obrażenia ZANIM poznają cel
+     * (wachlarz leci w kursor, a odbicia szukają następnego moba dopiero po
+     * trafieniu). Tam podatność nadal nie wchodzi — to osobna zmiana.
+     */
+    const dmg = target ? base * this.mobVulnerabilityOf(target) : base;
+    if (p.critChance <= 0) return dmg;
+    if (this.rng.next() * 100 >= p.critChance) return dmg;
     p.lastCritTick = this.tick;
-    return base * p.critDamageMult;
+    return dmg * p.critDamageMult;
   }
 
   private applySkill(p: Player, input: SimInput): void {
@@ -2037,9 +2306,40 @@ export class World {
 
     if (!validSlot) return;
     const skill = this.skillOf(p, slot);
-    if (!skill || p.skillCooldowns[slot] > 0) return;
+    if (!skill) return;
 
-    p.skillCooldowns[slot] = this.skillCooldownTicksOf(p, slot);
+    /**
+     * ZSIADANIE Z FALI — drugie wciśnięcie tego samego klawisza kończy jazdę.
+     *
+     * Idzie PRZED bramką cooldownu, bo surf ma 7 s odnowienia: gdyby zostało
+     * niżej, wciśnięcie w locie odbiłoby się od cooldownu i gracz jechałby
+     * do końca dystansu bez względu na to, czy nadal tego chce.
+     *
+     * Warunek na `ride` jest istotny: zwykły doskok i Leap Strike zająca też
+     * są `leap`, a ich nikt nie ma prawa przerywać w połowie — trwają jedną
+     * szóstą sekundy i całą ich treścią jest lądowanie.
+     */
+    if (
+      skill.kind === 'leap' && p.dashTicksLeft > 0 &&
+      p.activeDashId === skill.dashId && dashById(p.activeDashId).ride
+    ) {
+      p.dashTicksLeft = 0;
+      return;
+    }
+
+    // Skill „summon-lub-komenda" z JUŻ POSTAWIONĄ jednostką omija bramkę
+    // cooldownu slotu: to komenda, a nie stawianie, i ma własny cooldown
+    // (na jednostce). Bez tego 14 s cooldownu przywołania blokowałoby też
+    // sterowanie duchem.
+    const isCommandPress =
+      skill.kind === 'summon' && skill.commandsMinion &&
+      this.minions.some(
+        (mi) => mi.alive && mi.ownerIndex === p.index &&
+          mi.defIndex === MINIONS.indexOf(minionById(skill.minionId)!),
+      );
+
+    if (!isCommandPress && p.skillCooldowns[slot] > 0) return;
+    if (!isCommandPress) p.skillCooldowns[slot] = this.skillCooldownTicksOf(p, slot);
     p.lastSkillTick = this.tick;
     p.lastSkillDirX = dirX;
     p.lastSkillDirY = dirY;
@@ -2047,7 +2347,7 @@ export class World {
     // Skill przywołujący stawia jednostkę i na tym kończy — reszta tej metody
     // dotyczy wyłącznie ciosów w stożku.
     if (skill.kind === 'summon') {
-      this.castSummon(p, skill, input, dirX, dirY);
+      this.castSummon(p, skill, input, dirX, dirY, slot);
       return;
     }
 
@@ -2063,11 +2363,43 @@ export class World {
       return;
     }
 
+    // Zamiana miejsc z własnym klonem — sam zwraca cooldown, gdy nie ma z kim.
+    if (skill.kind === 'phaseSwap') {
+      this.castPhaseSwap(p, skill, input, slot);
+      return;
+    }
+
+    // Dociągnięcie: lina leci w kursor i chwyta pierwszą jednostkę. Dalej
+    // wszystkim steruje `stepHooks`, więc ta metoda tylko wypuszcza linę.
+    if (skill.kind === 'hook') {
+      this.castHook(p, skill, dirX, dirY);
+      return;
+    }
+
+    // Prowokacja: wrogowie w promieniu są zmuszeni atakować gracza.
+    if (skill.kind === 'taunt') {
+      this.castTaunt(p, skill);
+      return;
+    }
+
+    // Kanałowanie: gracz staje i sączy efekt, dopóki się nie ruszy (`stepChannels`).
+    if (skill.kind === 'channel') {
+      this.castChannel(p, skill, input, dirX, dirY);
+      return;
+    }
+
+    // Bariera: tymczasowa geometria kolizji w punkcie pod kursorem.
+    if (skill.kind === 'wall') {
+      this.castWall(p, skill, input, dirX, dirY);
+      return;
+    }
+
     // Wzmocnienie na czas: nie zadaje obrażeń, tylko zmienia zwykłe ciosy.
     if (skill.kind === 'empower') {
       p.empowerTicks = skill.durationTicks;
       p.empowerAttackSpeed = skill.attackSpeed;
-      this.setChainBuff(p, skill.name, skill.durationTicks, -1, skill.chain);
+      // Arcane Surge lisa to STRZAŁY, nie błyskawice — wygląd domyślny.
+      this.setChainBuff(p, skill.name, skill.durationTicks, -1, skill.chain, '');
       return;
     }
 
@@ -2105,15 +2437,35 @@ export class World {
     const range = this.meleeRangeOf(p) * skill.rangeMult;
     const baseDamage = this.meleeDamageOf(p) * skill.damageMult;
     const knockback = skill.knockback * p.knockbackMult;
-    this.applyCone(p, p.x, p.y, dirX, dirY, range, baseDamage, skill.coneCos, knockback);
+    const statusIndex = skill.status ? statusIndexById(skill.status) : -1;
+    this.applyCone(p, p.x, p.y, dirX, dirY, range, baseDamage, skill.coneCos, knockback, statusIndex);
 
     // SWIPE alfy: ten sam cios POWTARZA każdy sojuszniczy minion gracza,
     // ze swojej pozycji i w tym samym kierunku. Dlatego siła tej gałęzi
     // rośnie z liczbą wilków, a nie z liczb na samej umiejętności.
+    // Klony wydry jadą na dokładnie tym samym mechanizmie.
     if (skill.packEcho) {
       for (const mi of this.minions) {
         if (!mi.alive || mi.ownerIndex !== p.index) continue;
-        this.applyCone(p, mi.x, mi.y, dirX, dirY, range, baseDamage, skill.coneCos, knockback);
+        this.applyCone(p, mi.x, mi.y, dirX, dirY, range, baseDamage, skill.coneCos, knockback, statusIndex);
+        // SHATTER: jednostka rozpryskuje się zaraz po powtórzeniu ciosu.
+        if (skill.consumesEcho) mi.alive = false;
+      }
+    }
+
+    // Klon zostaje DOPIERO TERAZ, w miejscu, z którego padł cios — gdyby
+    // powstał wcześniej, powtórzyłby ten sam cios z pozycji gracza i jedno
+    // wciśnięcie liczyłoby się podwójnie.
+    if (skill.spawns) {
+      const def = minionById(skill.spawns.minionId);
+      if (def) {
+        const n = skill.spawns.count;
+        for (let i = 0; i < n; i++) {
+          // Rozstawienie w poprzek kierunku ciosu — dwa klony w jednym punkcie
+          // wyglądałyby jak jeden i tną dokładnie tę samą linię.
+          const off = n === 1 ? 0 : (i - (n - 1) / 2) * 34;
+          this.spawnMinion(def, p.index, p.x - dirY * off, p.y + dirX * off);
+        }
       }
     }
   }
@@ -2122,10 +2474,14 @@ export class World {
    * Cios w stożku z DOWOLNEGO punktu. Wyodrębnione, bo Swipe alfy odpala
    * ten sam stożek raz z gracza i raz z każdego jego wilka — bez tego
    * `packEcho` byłby kopią trzydziestu linijek.
+   *
+   * `coneCos: -1` daje stożek 360°, czyli nowę wokół punktu — z tego korzysta
+   * i Shock Nova zająca, i fala wydry sunąca za graczem (`rideWave`).
    */
   private applyCone(
     p: Player, ox: number, oy: number, dirX: number, dirY: number,
     range: number, baseDamage: number, coneCos: number, knockback: number,
+    statusIndex = -1,
   ): void {
     this.hash.forEachNear(ox, oy, range + C.MOB_RADIUS_MAX, (i) => {
       const m = this.mobs[i];
@@ -2138,12 +2494,15 @@ export class World {
       const d = Math.sqrt(d2);
       // Test stożka: kąt między kierunkiem celowania a wektorem do moba.
       if ((dx / d) * dirX + (dy / d) * dirY < coneCos) return;
-      m.hp -= this.rollDamage(p, baseDamage);
+      m.hp -= this.rollDamage(p, baseDamage, m);
       m.lastHitTick = this.tick;
       if (m.hp <= 0) {
         this.killMob(m, p);
         return;
       }
+      // Status PO obrażeniach: inaczej `soaked` nałożony tym samym ciosem
+      // podbijałby sam siebie, a każde kolejne cięcie liczyłoby się podwójnie.
+      if (statusIndex >= 0) this.applyStatus(m, statusIndex, p.index);
       // Bossa nie da się odepchnąć — inaczej dałoby się go zaganiać w róg.
       if (m.bossIndex >= 0) return;
       // Knockback z respektowaniem przeszkód — mob nie wyląduje w ścianie.
@@ -2222,7 +2581,7 @@ export class World {
           range: effect.chainRange,
           falloff: effect.chainFalloff,
           damageMult: effect.damageMult,
-        });
+        }, effect.visual ?? '');
         break;
       case 'field': {
         const def = minionById(effect.minionId);
@@ -2255,12 +2614,14 @@ export class World {
     const d = Math.sqrt(dx * dx + dy * dy) || 1;
     this.spawnProjectile(
       p.x, p.y, (dx / d) * 700, (dy / d) * 700,
-      this.meleeDamageOf(p) * effect.damageMult, true,
+      this.meleeDamageOf(p) * effect.damageMult * p.chainDamageMult, true,
       {
         chains: effect.chains + p.chainCountBonus,
         chainRange: effect.chainRange,
         chainFalloff: effect.chainFalloff,
         ownerIndex: p.index,
+        // Dash-błyskawica jest tylko wilcza (Lightning Rush), więc zawsze świeci.
+        visual: 'lightning',
       },
     );
   }
@@ -2272,6 +2633,7 @@ export class World {
   private setChainBuff(
     p: Player, name: string, ticks: number, uses: number,
     def: { chains: number; range: number; falloff: number; damageMult: number },
+    visual: string,
   ): void {
     p.chainBuffName = name;
     p.chainBuffTicks = ticks;
@@ -2280,12 +2642,14 @@ export class World {
     p.chainBuffRange = def.range;
     p.chainBuffFalloff = def.falloff;
     p.chainBuffMult = def.damageMult;
+    p.chainBuffVisual = visual;
   }
 
   private clearChainBuff(p: Player): void {
     p.chainBuffTicks = 0;
     p.chainBuffUses = 0;
     p.chainBuffName = '';
+    p.chainBuffVisual = '';
   }
 
   /**
@@ -2299,6 +2663,7 @@ export class World {
     let range = p.meleeChainRange;
     let falloff = p.meleeChainFalloff;
     let mult = p.meleeChainDamageMult;
+    let visual = p.meleeChainVisual;
 
     // Wzmocnienie ma pierwszeństwo przed rykoszetem bazowym.
     if (p.chainBuffTicks > 0) {
@@ -2306,6 +2671,7 @@ export class World {
       range = p.chainBuffRange;
       falloff = p.chainBuffFalloff;
       mult = p.chainBuffMult;
+      visual = p.chainBuffVisual;
       // `uses` -1 = działa do końca czasu; dodatnie zużywa to trafienie.
       if (p.chainBuffUses > 0) {
         p.chainBuffUses--;
@@ -2323,13 +2689,14 @@ export class World {
     const d = Math.sqrt(dx * dx + dy * dy) || 1;
     const bolt = this.spawnProjectile(
       from.x, from.y, (dx / d) * 640, (dy / d) * 640,
-      this.meleeDamageOf(p) * mult, true,
+      this.meleeDamageOf(p) * mult * p.chainDamageMult, true,
       {
         // -1, bo pierwszy przeskok to sam lot do `next`.
         chains: Math.max(0, chains - 1 + p.chainCountBonus),
         chainRange: range,
         chainFalloff: falloff,
         ownerIndex: p.index,
+        visual,
       },
     );
     // Trafiony już oberwał od ciosu — znaczymy go, żeby łańcuch nie wracał.
@@ -2373,6 +2740,61 @@ export class World {
       { ownerIndex: p.index },
     );
     p.skillCooldowns[slot] = 0;
+  }
+
+  /**
+   * PHASE SWAP — gracz i jego klon najbliżej kursora ZAMIENIAJĄ SIĘ MIEJSCAMI.
+   *
+   * Celem jest kursor, a nie wejście na jednostkę (jak w portalach lisa), bo
+   * klonów może być kilkanaście i trzeba móc wskazać, o który chodzi. Dzięki
+   * temu jeden przycisk jest naraz wejściem i ucieczką: skaczesz do klona
+   * w środku hordy albo do tego, którego zostawiłeś z tyłu.
+   *
+   * Klon ląduje tam, gdzie stał gracz — więc każdy skok PRZESTAWIA stado,
+   * a nie tylko gracza. To jest ta drobna rzecz, która robi z tego pozycyjną
+   * grę: nie da się skakać bez rozstrajania własnego pola ostrzału.
+   */
+  private castPhaseSwap(
+    p: Player, skill: PhaseSwapSkill, input: SimInput, slot: number,
+  ): void {
+    const def = minionById(skill.minionId);
+    if (!def) return;
+    const defIndex = MINIONS.indexOf(def);
+
+    let best: Minion | null = null;
+    let bestD2 = skill.pickRadius * skill.pickRadius;
+    for (const mi of this.minions) {
+      if (!mi.alive || mi.ownerIndex !== p.index || mi.defIndex !== defIndex) continue;
+      const dx = mi.x - input.aimX;
+      const dy = mi.y - input.aimY;
+      const d2 = dx * dx + dy * dy;
+      if (d2 <= bestD2) {
+        bestD2 = d2;
+        best = mi;
+      }
+    }
+    // Brak klona pod kursorem = skill w ogóle się nie odpalił. Oddajemy
+    // cooldown, bo inaczej pudło kosztowałoby 6 s ucieczki — a wskazanie
+    // pustego miejsca to pomyłka, nie decyzja.
+    if (!best) {
+      p.skillCooldowns[slot] = 0;
+      return;
+    }
+
+    const fromX = p.x;
+    const fromY = p.y;
+    const at = this.pushOutOfObstacles(best.x, best.y, C.PLAYER_RADIUS);
+    p.x = Math.min(Math.max(at.x, C.PLAYER_RADIUS), C.WORLD_W - C.PLAYER_RADIUS);
+    p.y = Math.min(Math.max(at.y, C.PLAYER_RADIUS), C.WORLD_H - C.PLAYER_RADIUS);
+    best.x = fromX;
+    best.y = fromY;
+
+    // Teleport przerywa marsz — inaczej postać od razu wróciłaby pod stary cel.
+    p.hasMoveTarget = false;
+    // Render rysuje błysk w obu punktach z tych samych pól co Blink Arrow.
+    p.blinkX = fromX;
+    p.blinkY = fromY;
+    p.lastBlinkTick = this.tick;
   }
 
   /** Punkt pod kursorem, przycięty do zasięgu — wspólny dla pól i przywołań. */
@@ -2422,10 +2844,30 @@ export class World {
 
   /** Postawienie jednostki skillem — miejsce bierzemy spod kursora. */
   private castSummon(
-    p: Player, skill: SummonSkill, input: SimInput, dirX: number, dirY: number,
+    p: Player, skill: SummonSkill, input: SimInput, dirX: number, dirY: number, slot: number,
   ): void {
     const def = minionById(skill.minionId);
     if (!def) return;
+
+    // SUMMON-LUB-KOMENDA: jeśli jednostka już żyje, wciśnięcie ją STERUJE,
+    // a nie stawia drugiej. Komenda ma własny cooldown (na jednostce), więc
+    // NIE blokujemy slotu skilla na cały czas przywołania — zerujemy go.
+    if (skill.commandsMinion) {
+      const defIndex = MINIONS.indexOf(def);
+      const existing = this.minions.find(
+        (mi) => mi.alive && mi.ownerIndex === p.index && mi.defIndex === defIndex,
+      );
+      if (existing) {
+        p.skillCooldowns[slot] = 0;
+        if (existing.commandTicks <= 0 && existing.commandCd <= 0 && def.command) {
+          existing.commandTicks = def.command.durationTicks;
+          existing.commandX = input.aimX;
+          existing.commandY = input.aimY;
+          existing.commandCd = def.command.cooldownTicks;
+        }
+        return;
+      }
+    }
 
     // Cel poza zasięgiem stawiania przycinamy do maksimum — skill nigdy nie
     // „nie działa", tylko stawia jednostkę tak daleko, jak wolno.
@@ -2433,11 +2875,395 @@ export class World {
     const tx = at.x;
     const ty = at.y;
 
+    // SUMMON-LUB-PRZENIEŚ: jeśli jednostka już żyje, PRZESUWAMY ją zamiast
+    // stawiać drugą — to jest jeden przenośny turret buildera. Zachowujemy jej
+    // stan (cykl ataku, czas życia); relokacja to teleport, nie re-deploy.
+    if (skill.relocates) {
+      const defIndex = MINIONS.indexOf(def);
+      const existing = this.minions.find(
+        (mi) => mi.alive && mi.ownerIndex === p.index && mi.defIndex === defIndex,
+      );
+      if (existing) {
+        const pos = this.pushOutOfObstacles(
+          Math.min(Math.max(tx, def.radius), C.WORLD_W - def.radius),
+          Math.min(Math.max(ty, def.radius), C.WORLD_H - def.radius),
+          def.radius,
+        );
+        existing.x = pos.x;
+        existing.y = pos.y;
+        existing.prevX = pos.x;
+        existing.prevY = pos.y;
+        return;
+      }
+    }
+
     for (let i = 0; i < skill.count; i++) {
       // Kilka sztuk naraz rozstawiamy w wachlarzu, żeby nie stały w sobie.
       const spread = skill.count > 1 ? (i - (skill.count - 1) / 2) * def.radius * 2.4 : 0;
       this.spawnMinion(def, p.index, tx - dirY * spread, ty + dirX * spread);
     }
+  }
+
+  /* ── Dociągnięcie (`HookSkill`) ───────────────────────────────────────── */
+
+  /** Wypuszcza linę w kierunku celowania; resztą zajmuje się `stepHooks`. */
+  private castHook(p: Player, skill: HookSkill, dirX: number, dirY: number): void {
+    // Z wybranym celem lina leci PROSTO w niego (a i tak łapie pierwszego na
+    // trasie — hook zostaje skillshotem). Bez celu: kierunek spod kursora.
+    if (p.targetMob >= 0) {
+      const m = this.mobs[p.targetMob];
+      if (m && m.alive) {
+        const tx = m.x - p.x;
+        const ty = m.y - p.y;
+        const tl = Math.sqrt(tx * tx + ty * ty);
+        if (tl > 0.001) { dirX = tx / tl; dirY = ty / tl; }
+      }
+    }
+    for (const h of this.hooks) {
+      if (h.alive) continue;
+      h.alive = true;
+      h.ownerIndex = p.index;
+      h.x = p.x; h.y = p.y; h.prevX = p.x; h.prevY = p.y;
+      h.dirX = dirX; h.dirY = dirY;
+      h.speed = skill.speed;
+      h.travelled = 0;
+      h.maxRange = skill.range;
+      h.width = skill.width;
+      // Jeden rzut na kryta w chwili wystrzału — trafienie jest z góry ustalone.
+      h.damage = this.rollDamage(p, this.meleeDamageOf(p) * skill.damageMult);
+      h.mode = skill.mode;
+      h.status = skill.status ? statusIndexById(skill.status) : -1;
+      h.grabsAllies = skill.grabsAllies ?? false;
+      h.phase = 'out';
+      h.grabbedMob = -1;
+      h.startTick = this.tick;
+      return;
+    }
+    // Brak wolnego slotu w poolu = lina się nie odpaliła; cooldown już zszedł
+    // w `applySkill`, ale przy 8 slotach na 8 graczy to sytuacja teoretyczna.
+  }
+
+  private stepHooks(): void {
+    const dt = C.TICK_DT;
+    for (const h of this.hooks) {
+      if (!h.alive) continue;
+      h.prevX = h.x; h.prevY = h.y;
+      const owner = this.players[h.ownerIndex];
+      // Właściciel padł — lina znika (nie ma dokąd zwijać ani kogo ciągnąć).
+      if (!owner || owner.dead) { h.alive = false; continue; }
+
+      const stepLen = h.speed * dt;
+
+      if (h.phase === 'out') {
+        h.x += h.dirX * stepLen;
+        h.y += h.dirY * stepLen;
+        h.travelled += stepLen;
+        // Trafienie: pierwszy wróg w zasięgu czubka zostaje chwycony. TODO: gdy
+        // wejdzie „wybieranie jednostek", celem będzie WSKAZANY wróg, nie najbliższy.
+        // TODO(grabsAllies): wariant ratunkowy ma łapać też sojuszników w co-opie.
+        const hit = this.nearestMobTo(h.x, h.y, h.width + C.MOB_RADIUS_MAX);
+        if (hit && hit.bossIndex < 0) {
+          // Bossa nie da się dociągnąć — tak jak nie da się go odepchnąć.
+          hit.hp -= h.damage;
+          hit.lastHitTick = this.tick;
+          if (hit.hp <= 0) {
+            this.killMob(hit, owner);
+          } else {
+            h.grabbedMob = this.mobs.indexOf(hit);
+            if (h.status >= 0) this.applyStatus(hit, h.status, owner.index);
+          }
+          h.phase = 'back';
+        } else if (
+          h.travelled >= h.maxRange ||
+          h.x < 0 || h.x > C.WORLD_W || h.y < 0 || h.y > C.WORLD_H
+        ) {
+          h.phase = 'back';
+        }
+        continue;
+      }
+
+      // ── Faza zwijania ──
+      if (h.mode === 'pullSelf' && h.grabbedMob >= 0) {
+        // Hookshot: to GRACZA ciągniemy do celu; lina zostaje wbita we wroga.
+        const m = this.mobs[h.grabbedMob];
+        if (!m.alive) { h.alive = false; continue; }
+        h.x = m.x; h.y = m.y;
+        const dx = m.x - owner.x;
+        const dy = m.y - owner.y;
+        const d = Math.sqrt(dx * dx + dy * dy) || 1;
+        if (d <= C.PLAYER_RADIUS + ENEMIES[m.defIndex].radius + 4) {
+          owner.hasMoveTarget = false;
+          h.alive = false;
+          continue;
+        }
+        const step = Math.min(stepLen, d);
+        const at = this.pushOutOfObstacles(owner.x + (dx / d) * step, owner.y + (dy / d) * step, C.PLAYER_RADIUS);
+        owner.x = Math.min(Math.max(at.x, C.PLAYER_RADIUS), C.WORLD_W - C.PLAYER_RADIUS);
+        owner.y = Math.min(Math.max(at.y, C.PLAYER_RADIUS), C.WORLD_H - C.PLAYER_RADIUS);
+        continue;
+      }
+
+      // pullTarget (Pudge) albo lina wróciła pusta: czubek zwija się do gracza,
+      // a chwycony wróg jedzie razem z nim.
+      const dx = owner.x - h.x;
+      const dy = owner.y - h.y;
+      const d = Math.sqrt(dx * dx + dy * dy) || 1;
+      const step = Math.min(stepLen, d);
+      h.x += (dx / d) * step;
+      h.y += (dy / d) * step;
+      if (h.grabbedMob >= 0) {
+        const m = this.mobs[h.grabbedMob];
+        if (m.alive && m.bossIndex < 0) {
+          const at = this.pushOutOfObstacles(h.x, h.y, ENEMIES[m.defIndex].radius);
+          m.x = Math.min(Math.max(at.x, C.MOB_RADIUS), C.WORLD_W - C.MOB_RADIUS);
+          m.y = Math.min(Math.max(at.y, C.MOB_RADIUS), C.WORLD_H - C.MOB_RADIUS);
+        } else {
+          h.grabbedMob = -1;
+        }
+      }
+      if (d <= C.PLAYER_RADIUS + 4) h.alive = false; // lina zwinięta do końca
+    }
+  }
+
+  /* ── Prowokacja (`TauntSkill`) ────────────────────────────────────────── */
+
+  private castTaunt(p: Player, skill: TauntSkill): void {
+    const r2 = skill.radius * skill.radius;
+    this.hash.forEachNear(p.x, p.y, skill.radius + C.MOB_RADIUS_MAX, (i) => {
+      const m = this.mobs[i];
+      // Bossów się nie prowokuje — tak jak są odporni na odrzut i ogłuszenie.
+      if (!m.alive || m.bossIndex >= 0) return;
+      const dx = m.x - p.x;
+      const dy = m.y - p.y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 > r2) return;
+      m.tauntUntilTick = this.tick + skill.durationTicks;
+      m.tauntedBy = p.index;
+      // Ściągnięcie do gracza — Berserker's Call zbiera hordę w kupę pod cios.
+      if (skill.pullIn && d2 > 1) {
+        const d = Math.sqrt(d2);
+        const pull = Math.min(skill.pullIn, d - 1);
+        const at = this.pushOutOfObstacles(
+          m.x - (dx / d) * pull, m.y - (dy / d) * pull, ENEMIES[m.defIndex].radius,
+        );
+        m.x = Math.min(Math.max(at.x, C.MOB_RADIUS), C.WORLD_W - C.MOB_RADIUS);
+        m.y = Math.min(Math.max(at.y, C.MOB_RADIUS), C.WORLD_H - C.MOB_RADIUS);
+      }
+    });
+    // Aura na czas prowokacji (np. pancerz) — reuse mechanizmu `AuraSkill`.
+    if (skill.auraId) {
+      const index = AURAS.findIndex((a) => a.id === skill.auraId);
+      if (index >= 0) p.auraTicks[index] = Math.max(p.auraTicks[index], skill.durationTicks);
+    }
+  }
+
+  /* ── Kanałowanie (`ChannelSkill`) ─────────────────────────────────────── */
+
+  private castChannel(
+    p: Player, skill: ChannelSkill, input: SimInput, dirX: number, dirY: number,
+  ): void {
+    p.channelTicks = skill.channelTicks;
+    p.channelSkillId = skill.id;
+    // vortex działa wokół WYBRANEGO punktu; drain sączy z okolic gracza i środka
+    // nie czyta — ale zapisujemy go dla obu, żeby render miał z czego rysować.
+    const at = this.aimPoint(p, input, dirX, dirY, 600);
+    p.channelX = at.x;
+    p.channelY = at.y;
+    p.lastChannelTick = this.tick;
+  }
+
+  private stepChannels(inputOf: (p: Player) => SimInput): void {
+    for (const p of this.players) {
+      if (p.channelTicks <= 0) continue;
+      const skill = skillById(p.channelSkillId);
+      if (p.dead || skill.kind !== 'channel') { p.channelTicks = 0; continue; }
+
+      // PRZERWANIE RUCHEM: kanał jest przerywalny — chód, doskok albo odrzut
+      // kasują resztę. Pierwszego ticka nie sprawdzamy, bo gracz dopiero co stał,
+      // gdy go odpalał (`lastChannelTick === tick`).
+      if (this.tick > p.lastChannelTick) {
+        const moved = (p.x - p.prevX) ** 2 + (p.y - p.prevY) ** 2 > 1;
+        if (moved || inputOf(p).dash) { p.channelTicks = 0; continue; }
+      }
+
+      const every = Math.max(1, skill.tickEveryTicks);
+      // Pierwszy puls pada od razu (różnica 0), potem co `every` ticków.
+      if ((skill.channelTicks - p.channelTicks) % every === 0) {
+        this.channelTickEffect(p, skill);
+      }
+      p.channelTicks--;
+    }
+  }
+
+  private channelTickEffect(p: Player, skill: ChannelSkill): void {
+    const pay = skill.payload;
+    if (pay.type === 'drain') {
+      // Sącz z WYBRANEGO celu, jeśli jest w zasięgu; inaczej z najbliższego.
+      // Placeholder zniknął — teraz mamy realną selekcję jednostki.
+      let m: Mob | null = null;
+      if (p.targetMob >= 0) {
+        const t = this.mobs[p.targetMob];
+        if (t && t.alive) {
+          const dx = t.x - p.x;
+          const dy = t.y - p.y;
+          if (dx * dx + dy * dy <= pay.targetRadius * pay.targetRadius) m = t;
+        }
+      }
+      if (!m) m = this.nearestMobTo(p.x, p.y, pay.targetRadius);
+      if (!m) return;
+      const dmg = this.rollDamage(p, this.meleeDamageOf(p) * pay.damageMult, m);
+      m.hp -= dmg;
+      m.lastHitTick = this.tick;
+      if (m.hp <= 0) this.killMob(m, p);
+      p.hp = Math.min(this.maxHpOf(p), p.hp + dmg * pay.healPct);
+      return;
+    }
+    if (pay.type === 'vortex') {
+      // vortex: wsysa i rani wszystko wokół celowanego punktu.
+      const r2 = pay.radius * pay.radius;
+      this.hash.forEachNear(p.channelX, p.channelY, pay.radius + C.MOB_RADIUS_MAX, (i) => {
+        const m = this.mobs[i];
+        if (!m.alive || m.bossIndex >= 0) return;
+        const dx = p.channelX - m.x;
+        const dy = p.channelY - m.y;
+        const d2 = dx * dx + dy * dy;
+        if (d2 > r2) return;
+        const d = Math.sqrt(d2) || 1;
+        const pull = Math.min(pay.pull, d);
+        const at = this.pushOutOfObstacles(
+          m.x + (dx / d) * pull, m.y + (dy / d) * pull, ENEMIES[m.defIndex].radius,
+        );
+        m.x = Math.min(Math.max(at.x, C.MOB_RADIUS), C.WORLD_W - C.MOB_RADIUS);
+        m.y = Math.min(Math.max(at.y, C.MOB_RADIUS), C.WORLD_H - C.MOB_RADIUS);
+        m.hp -= this.rollDamage(p, this.meleeDamageOf(p) * pay.damageMult, m);
+        m.lastHitTick = this.tick;
+        if (m.hp <= 0) this.killMob(m, p);
+      });
+      return;
+    }
+
+    // drainNova: pierścień grozy WOKÓŁ GRACZA — rani wszystkich (także bossa),
+    // leczy z SUMY zadanych obrażeń i nakłada status (fear). Silnik AoE-wampira.
+    const statusIndex = pay.status ? statusIndexById(pay.status) : -1;
+    const novaR2 = pay.radius * pay.radius;
+    let healed = 0;
+    this.hash.forEachNear(p.x, p.y, pay.radius + C.MOB_RADIUS_MAX, (i) => {
+      const m = this.mobs[i];
+      if (!m.alive) return;
+      const dx = m.x - p.x;
+      const dy = m.y - p.y;
+      if (dx * dx + dy * dy > novaR2) return;
+      const dmg = this.rollDamage(p, this.meleeDamageOf(p) * pay.damageMult, m);
+      m.hp -= dmg;
+      m.lastHitTick = this.tick;
+      healed += dmg;
+      if (m.hp <= 0) {
+        this.killMob(m, p);
+        return;
+      }
+      // Status PO obrażeniach (jak w applyCone); bossy i tak zignorują fear.
+      if (statusIndex >= 0) this.applyStatus(m, statusIndex, p.index);
+    });
+    if (healed > 0) p.hp = Math.min(this.maxHpOf(p), p.hp + healed * pay.healPct);
+  }
+
+  /* ── Bariera (`WallSkill`) ────────────────────────────────────────────── */
+
+  private castWall(
+    p: Player, skill: WallSkill, input: SimInput, dirX: number, dirY: number,
+  ): void {
+    const at = skill.aimed
+      ? this.aimPoint(p, input, dirX, dirY, skill.placeRange)
+      : { x: p.x + dirX * skill.placeRange, y: p.y + dirY * skill.placeRange };
+
+    if (skill.shape === 'line') {
+      // Odcinek W POPRZEK kierunku celowania, wyśrodkowany na punkcie.
+      const nx = -dirY;
+      const ny = dirX;
+      const half = skill.length / 2;
+      this.spawnWall(
+        p.index, at.x - nx * half, at.y - ny * half, at.x + nx * half, at.y + ny * half, skill,
+      );
+      return;
+    }
+    // Pierścień: N odcinków po obwodzie koła o promieniu `length`.
+    const seg = 10;
+    const r = skill.length;
+    for (let i = 0; i < seg; i++) {
+      const a0 = (i / seg) * Math.PI * 2;
+      const a1 = ((i + 1) / seg) * Math.PI * 2;
+      this.spawnWall(
+        p.index,
+        at.x + Math.cos(a0) * r, at.y + Math.sin(a0) * r,
+        at.x + Math.cos(a1) * r, at.y + Math.sin(a1) * r,
+        skill,
+      );
+    }
+  }
+
+  private spawnWall(
+    owner: number, x1: number, y1: number, x2: number, y2: number, skill: WallSkill,
+  ): void {
+    for (const w of this.walls) {
+      if (w.alive) continue;
+      w.alive = true;
+      w.ownerIndex = owner;
+      w.x1 = x1; w.y1 = y1; w.x2 = x2; w.y2 = y2;
+      w.thickness = skill.thickness;
+      w.ttl = skill.durationTicks;
+      w.blocksProjectiles = skill.blocksProjectiles;
+      w.startTick = this.tick;
+      // Wrogowie stojący na linii W CHWILI stawiania dostają status (Fissure).
+      if (skill.status) {
+        const statusIndex = statusIndexById(skill.status);
+        if (statusIndex >= 0) this.statusAlongSegment(x1, y1, x2, y2, w.thickness, statusIndex, owner);
+      }
+      return;
+    }
+  }
+
+  private stepWalls(): void {
+    for (const w of this.walls) {
+      if (!w.alive) continue;
+      if (--w.ttl <= 0) w.alive = false;
+    }
+    // TODO(kolizja): tu (albo w `moveMobsAndAttack` i `stepProjectiles`) wepnij
+    // blokowanie ruchu — dla każdego żywego `w` sprawdź, czy krok jednostki
+    // z (prevX,prevY) do (x,y) przecina odcinek (użyj `pointSegDist2`), i jeśli
+    // tak, przytnij pozycję. Świadomie zostawione na osobno, bo naiwne
+    // wpięcie potrafi zaklinować mobki na ścianie — wymaga własnego benchu.
+  }
+
+  /** Nakłada status wszystkim wrogom leżącym na odcinku (grubość + promień). */
+  private statusAlongSegment(
+    x1: number, y1: number, x2: number, y2: number,
+    thickness: number, statusIndex: number, owner: number,
+  ): void {
+    const midX = (x1 + x2) / 2;
+    const midY = (y1 + y2) / 2;
+    const reach = Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2) / 2 + thickness + C.MOB_RADIUS_MAX;
+    this.hash.forEachNear(midX, midY, reach, (i) => {
+      const m = this.mobs[i];
+      if (!m.alive || m.bossIndex >= 0) return;
+      const margin = thickness + ENEMIES[m.defIndex].radius;
+      if (this.pointSegDist2(m.x, m.y, x1, y1, x2, y2) <= margin * margin) {
+        this.applyStatus(m, statusIndex, owner);
+      }
+    });
+  }
+
+  /** Kwadrat odległości punktu od odcinka — wspólny helper geometrii ścian. */
+  private pointSegDist2(
+    px: number, py: number, ax: number, ay: number, bx: number, by: number,
+  ): number {
+    const abx = bx - ax;
+    const aby = by - ay;
+    const ab2 = abx * abx + aby * aby || 1;
+    let t = ((px - ax) * abx + (py - ay) * aby) / ab2;
+    t = t < 0 ? 0 : t > 1 ? 1 : t;
+    const cx = ax + abx * t;
+    const cy = ay + aby * t;
+    return (px - cx) ** 2 + (py - cy) ** 2;
   }
 
   /* ── Statusy na wrogach ───────────────────────────────────────────────── */
@@ -2495,6 +3321,36 @@ export class World {
       if (STATUSES[st.defIndex].stuns) return true;
     }
     return false;
+  }
+
+  /** Czy wróg jest przestraszony — ucieka i nie atakuje (`StatusDef.flees`). */
+  mobFeared(m: Mob): boolean {
+    for (const st of m.statuses) {
+      if (st.defIndex < 0) continue;
+      if (STATUSES[st.defIndex].flees) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Najbliższe ZAGROŻENIE dla wroga: żywy gracz albo dowolna jego jednostka.
+   * Od tego ucieka przestraszony mob — a że duch też jest jednostką, sam
+   * rozgania hordę, którą przestraszył.
+   */
+  private nearestThreatTo(x: number, y: number): { x: number; y: number } | null {
+    let best: { x: number; y: number } | null = null;
+    let bestD2 = Infinity;
+    for (const p of this.players) {
+      if (p.dead) continue;
+      const d2 = (p.x - x) * (p.x - x) + (p.y - y) * (p.y - y);
+      if (d2 < bestD2) { bestD2 = d2; best = p; }
+    }
+    for (const mi of this.minions) {
+      if (!mi.alive) continue;
+      const d2 = (mi.x - x) * (mi.x - x) + (mi.y - y) * (mi.y - y);
+      if (d2 < bestD2) { bestD2 = d2; best = mi; }
+    }
+    return best;
   }
 
   mobVulnerabilityOf(m: Mob): number {
@@ -2655,6 +3511,39 @@ export class World {
         }
       }
     }
+
+    // Aury roztaczane przez JEDNOSTKI (duch summonera). Źródłem jest minion,
+    // a nie gracz — ale warstwa ta sama (liczona od zera co tick), więc bonus
+    // znika, gdy duch zginie albo gracz odejdzie z jego promienia. Obsługujemy
+    // buff i leczenie sojuszników; debuffy na wrogów jednostka i tak zrobi
+    // atakiem `slam` ze statusem.
+    for (const mi of this.minions) {
+      if (!mi.alive) continue;
+      const auraId = MINIONS[mi.defIndex].auraId;
+      if (!auraId) continue;
+      const aura = auraById(auraId);
+      if (!aura) continue;
+      const r2 = aura.radius * aura.radius;
+
+      if (aura.allyBuff) {
+        for (const ally of this.players) {
+          if (ally.dead) continue;
+          const dx = ally.x - mi.x;
+          const dy = ally.y - mi.y;
+          if (dx * dx + dy * dy > r2) continue;
+          this.applyAuraBuff(ally, aura.allyBuff.kind, aura.allyBuff.value);
+        }
+      }
+      if (aura.allyHeal > 0 && this.tick % aura.intervalTicks === 0) {
+        for (const ally of this.players) {
+          if (ally.dead) continue;
+          const dx = ally.x - mi.x;
+          const dy = ally.y - mi.y;
+          if (dx * dx + dy * dy > r2) continue;
+          ally.hp = Math.min(this.maxHpOf(ally), ally.hp + aura.allyHeal);
+        }
+      }
+    }
   }
 
   /**
@@ -2788,6 +3677,11 @@ export class World {
     mi.stateTicks = 0;
     mi.attackIndex = 0;
     mi.spawnTick = this.tick;
+    // Slot wraca z poola po innej jednostce — bez tego mina odziedziczyłaby
+    // zużyte ładunki poprzedniczki.
+    mi.chargesLeft = def.charges ?? 0;
+    mi.commandTicks = 0;
+    mi.commandCd = 0;
     return mi;
   }
 
@@ -2799,6 +3693,34 @@ export class World {
    * osobno: przy rykoszecie z ciosu źródło nie ma jeszcze znacznika, a
    * podanie jego `chainMark` (-1) odrzuciłoby wszystkich nieoznaczonych.
    */
+  /**
+   * Wróg „pod kursorem" — najbliższy mob, którego tarcza (promień + margines)
+   * obejmuje punkt (x,y). Zwraca indeks w `mobs` albo -1. Rozwiązywane w
+   * SYMULACJI ze współrzędnych świata, więc w co-opie każdy klient wskaże ten
+   * sam cel niezależnie od tego, co ma na ekranie.
+   */
+  private mobAtPoint(x: number, y: number): number {
+    let best = -1;
+    let bestD2 = Infinity;
+    // Zapas na największego bossa: promień szukania musi objąć jego środek.
+    this.hash.forEachNear(x, y, 120 + TARGET_PICK_MARGIN, (i) => {
+      const m = this.mobs[i];
+      if (!m.alive) return;
+      const rad =
+        (m.bossIndex >= 0 ? BOSSES[m.bossIndex].radius : ENEMIES[m.defIndex].radius) +
+        TARGET_PICK_MARGIN;
+      const dx = m.x - x;
+      const dy = m.y - y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 > rad * rad) return;
+      if (d2 < bestD2) {
+        bestD2 = d2;
+        best = i;
+      }
+    });
+    return best;
+  }
+
   private nearestMobTo(
     x: number, y: number, maxDist: number,
     skipChainMark?: number, excludeIndex?: number,
@@ -2880,6 +3802,15 @@ export class World {
         }
       }
 
+      if (mi.commandCd > 0) mi.commandCd--;
+      // KOMENDA ma pierwszeństwo nad zwykłym ruchem: jednostka leci w zadany
+      // punkt i sieje status, dopóki komenda trwa.
+      if (mi.commandTicks > 0) {
+        this.stepMinionCommand(mi, def);
+        if (def.hp > 0) this.damageMinionByContact(mi, def);
+        continue;
+      }
+
       // Zasięg szukania celu: jednostki nieruchome mają go z ataku, ruchome
       // polują po całej okolicy.
       const scan = def.movement === 'static' ? 520 : 900;
@@ -2890,6 +3821,41 @@ export class World {
       if (!mi.alive) continue;
 
       if (def.attacks.length > 0) this.stepMinionAttack(mi, def, target);
+    }
+  }
+
+  /**
+   * Wykonanie KOMENDY (`MinionDef.command`): jednostka mknie w zadany punkt
+   * i co tick nakłada status w promieniu. Generyczne — konkretny efekt
+   * (dziś: strach ducha) jest DANYMI, więc kolejne skille summonów to wpis.
+   */
+  private stepMinionCommand(mi: Minion, def: MinionDef): void {
+    mi.commandTicks--;
+    const cmd = def.command;
+    if (!cmd) return;
+
+    const dx = mi.commandX - mi.x;
+    const dy = mi.commandY - mi.y;
+    const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+    const step = cmd.speed * C.TICK_DT;
+    if (dist > step) {
+      const pos = this.pushOutOfObstacles(mi.x + (dx / dist) * step, mi.y + (dy / dist) * step, def.radius);
+      mi.x = Math.min(Math.max(pos.x, def.radius), C.WORLD_W - def.radius);
+      mi.y = Math.min(Math.max(pos.y, def.radius), C.WORLD_H - def.radius);
+    }
+
+    if (cmd.status && cmd.statusRadius) {
+      const si = statusIndexById(cmd.status);
+      if (si >= 0) {
+        this.hash.forEachNear(mi.x, mi.y, cmd.statusRadius + C.MOB_RADIUS_MAX, (i) => {
+          const m = this.mobs[i];
+          if (!m.alive) return;
+          const reach = cmd.statusRadius! + ENEMIES[m.defIndex].radius;
+          const ddx = m.x - mi.x;
+          const ddy = m.y - mi.y;
+          if (ddx * ddx + ddy * ddy <= reach * reach) this.applyStatus(m, si, mi.ownerIndex);
+        });
+      }
     }
   }
 
@@ -2970,6 +3936,10 @@ export class World {
 
     if (mi.attackCooldown > 0) return;
     const attack = def.attacks[mi.attackIndex];
+    // PUŁAPKA leży bezczynnie, dopóki ktoś na nią nie wejdzie. To jedyny
+    // sposób, w jaki jednostka reaguje na wroga zamiast działać z własnej
+    // inicjatywy — bez tego każda mina byłaby wieżyczką.
+    if (def.triggerRadius && (!target || this.distTo(mi, target) > def.triggerRadius)) return;
     // Atak wymagający celu czeka, aż ktoś wejdzie w zasięg.
     if (attack.kind === 'bolt' && (!target || this.distTo(mi, target) > attack.range)) return;
     if (attack.windupTicks <= 0) {
@@ -2986,8 +3956,17 @@ export class World {
 
   private executeMinionAttack(mi: Minion, def: MinionDef, target: Mob | null): void {
     const attack = def.attacks[mi.attackIndex];
-    // Jedno miejsce, w którym talenty właściciela wchodzą w obrażenia jednostki.
-    const power = this.players[mi.ownerIndex]?.minionDamageMult ?? 1;
+    const owner = this.players[mi.ownerIndex];
+    // Obrażenia jednostki liczymy dwojako:
+    //  - `scalesWithOwner` (turret buildera): `attack.damage` jest MNOŻNIKIEM
+    //    obrażeń zwarcia gracza, a trafienie łapie jego kryty (`rollDamage`);
+    //  - klasycznie: płaskie `attack.damage` × stat sumonera `minionDamageMult`.
+    const scaleOwner = def.scalesWithOwner ? owner : null;
+    const power = owner?.minionDamageMult ?? 1;
+    const dmgOf = (t?: Mob): number =>
+      scaleOwner
+        ? this.rollDamage(scaleOwner, this.meleeDamageOf(scaleOwner) * attack.damage, t)
+        : attack.damage * power;
 
     switch (attack.kind) {
       case 'bolt': {
@@ -2997,15 +3976,18 @@ export class World {
           mi.x, mi.y,
           ((target.x - mi.x) / d) * attack.projectileSpeed,
           ((target.y - mi.y) / d) * attack.projectileSpeed,
-          attack.damage * power,
+          dmgOf(target),
           true,
           {
             // Pominięte w danych = zwykły pocisk, więc stare wieżyczki
-            // zachowują się dokładnie jak przedtem.
-            chains: attack.chains ?? 0,
-            chainRange: attack.chainRange ?? 0,
-            chainFalloff: attack.chainFalloff ?? 1,
+            // zachowują się dokładnie jak przedtem. Turret gracza (`scalesWithOwner`)
+            // dokłada odbicia z jego zwieńczenia (`OVERCHARGE`), z sensownymi
+            // domyślnymi zasięgiem/wytraceniem, gdy dane bolta ich nie mają.
+            chains: (attack.chains ?? 0) + (scaleOwner ? scaleOwner.turretBoltChains : 0),
+            chainRange: attack.chainRange ?? (scaleOwner?.turretBoltChains ? 240 : 0),
+            chainFalloff: attack.chainFalloff ?? 0.8,
             ownerIndex: mi.ownerIndex,
+            visual: attack.visual ?? '',
           },
         );
         break;
@@ -3017,7 +3999,7 @@ export class World {
             mi.x, mi.y,
             Math.cos(a) * attack.projectileSpeed,
             Math.sin(a) * attack.projectileSpeed,
-            attack.damage * power,
+            dmgOf(),
             true,
           );
         }
@@ -3038,7 +4020,7 @@ export class World {
           // Pole BEZ obrażeń nie ma migotać przy każdym tyknięciu — inaczej
           // samo spowolnienie wyglądałoby jak ciągłe bicie.
           if (attack.damage > 0) {
-            m.hp -= attack.damage * power;
+            m.hp -= dmgOf(m);
             m.lastHitTick = this.tick;
             if (m.hp <= 0) {
               this.killMob(m, this.players[mi.ownerIndex]);
@@ -3059,16 +4041,31 @@ export class World {
       }
     }
 
-    // Ładunek jednorazowy znika razem z wybuchem — patrz `MinionDef.oneShot`.
-    if (def.oneShot) {
-      mi.alive = false;
-      return;
+    // Zużycie ładunku. Po ostatnim jednostka znika razem z wybuchem —
+    // patrz `MinionDef.charges`.
+    if (mi.chargesLeft > 0) {
+      mi.chargesLeft--;
+      if (mi.chargesLeft === 0) {
+        mi.alive = false;
+        return;
+      }
     }
 
     mi.state = attack.recoverTicks > 0 ? 'recover' : 'idle';
     mi.stateTicks = attack.recoverTicks;
     mi.attackIndex = (mi.attackIndex + 1) % def.attacks.length;
-    mi.attackCooldown = def.attackIntervalTicks;
+    // Turret buildera strzela tak szybko, jak szybko bije gracz — więc OVERCLOCK
+    // (empower atak speedu) przyspiesza działko za darmo, przez ten sam mnożnik.
+    mi.attackCooldown = def.scalesWithOwner
+      ? this.ownerScaledInterval(def.attackIntervalTicks, owner)
+      : def.attackIntervalTicks;
+  }
+
+  /** Interwał ataku jednostki skalowany prędkością ataku właściciela. */
+  private ownerScaledInterval(base: number, owner?: Player): number {
+    if (!owner) return base;
+    const as = owner.attackSpeedMult * owner.auraAttackSpeedMult;
+    return Math.max(2, Math.round(base / Math.max(0.01, as)));
   }
 
   /**
@@ -3099,10 +4096,10 @@ export class World {
     this.hash.forEachNear(p.x, p.y, searchDist, (i) => {
       const m = this.mobs[i];
       if (!m.alive) return;
-      // Ogłuszony nie rani dotknięciem. Obrażenia kontaktowe to OSOBNA
-      // ścieżka od AI moba, więc bez tego „ogłuszony" wróg dalej by parzył
-      // i cała umiejętność sprawiałaby wrażenie zepsutej.
-      if (this.mobStunned(m)) return;
+      // Ogłuszony ani przestraszony nie rani dotknięciem. Obrażenia kontaktowe
+      // to OSOBNA ścieżka od AI moba, więc bez tego wróg „zamrożony" albo
+      // „uciekający" dalej by parzył i umiejętność wyglądałaby na zepsutą.
+      if (this.mobStunned(m) || this.mobFeared(m)) return;
       const def = ENEMIES[m.defIndex];
       const contactDist = C.PLAYER_RADIUS + def.radius;
       const dx = m.x - p.x;
@@ -3158,6 +4155,12 @@ export class World {
   /** Jedyne miejsce uśmiercania moba: liczniki, leech i rzut na drop. */
   private killMob(m: Mob, killer: Player): void {
     m.alive = false;
+    // Zdejmij ten cel każdemu, kto go trzymał — inaczej `targetMob` wisiałby na
+    // slocie, który pool zaraz odda nowemu wrogowi (recycle). Porównanie przez
+    // tożsamość obiektu trafia dokładnie w tego moba, nie w jego następcę.
+    for (const pl of this.players) {
+      if (pl.targetMob >= 0 && this.mobs[pl.targetMob] === m) pl.targetMob = -1;
+    }
     this.aliveMobs--;
     this.kills++;
     // PACK INSTINCT rośnie WYŁĄCZNIE za zabójstwa w grupie — samotne
@@ -3319,6 +4322,9 @@ export class World {
         break;
       case 'chainCount':
         p.chainCountBonus += value;
+        break;
+      case 'chainDamage':
+        p.chainDamageMult += value / 100;
         break;
       case 'leech':
         p.leechHealPerKill = Math.min(ITEM_CAPS.leechMax, p.leechHealPerKill + value);

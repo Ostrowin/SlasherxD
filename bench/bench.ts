@@ -1,7 +1,7 @@
 import { World } from '../src/sim/world';
 import { CLASSES } from '../src/sim/classes';
 import { WAVE_CONFIG } from '../src/sim/wavesConfig';
-import { PROGRESSION } from '../src/sim/talentsConfig';
+import { PROGRESSION, branchesFor } from '../src/sim/talentsConfig';
 import * as C from '../src/sim/constants';
 import { botInput, type Policy } from './bot';
 
@@ -25,6 +25,8 @@ const MAX_TICKS = 60_000;
 
 interface RunResult {
   classId: string;
+  /** Którą gałęzią drzewka bot grał — 0 to domyślna, pierwsza. */
+  branch: number;
   victory: boolean;
   timeout: boolean;
   waveReached: number;
@@ -45,7 +47,7 @@ interface RunResult {
   hp: number;
 }
 
-function playRun(classId: string, seed: number, policy: Policy): RunResult {
+function playRun(classId: string, seed: number, policy: Policy, branch = 0): RunResult {
   const cls = CLASSES.find((c) => c.id === classId)!;
   const world = new World(seed, [cls], [[]]);
   const p = world.players[0];
@@ -53,7 +55,7 @@ function playRun(classId: string, seed: number, policy: Policy): RunResult {
   let ticks = 0;
 
   while (ticks < MAX_TICKS && world.phase !== 'victory' && !p.dead) {
-    world.step([botInput(world, p, policy)]);
+    world.step([botInput(world, p, policy, branch)]);
     ticks++;
     if (maxLevelWave < 0 && p.level >= PROGRESSION.maxLevel) maxLevelWave = world.wave;
   }
@@ -61,6 +63,7 @@ function playRun(classId: string, seed: number, policy: Policy): RunResult {
   const critExpected = 1 + (p.critChance / 100) * (p.critDamageMult - 1);
   return {
     classId,
+    branch,
     victory: world.phase === 'victory',
     timeout: ticks >= MAX_TICKS,
     waveReached: world.wave,
@@ -171,6 +174,33 @@ function main(): void {
   // W tabeli pokazujemy pierwszy seed każdej klasy — reszta idzie w średnie.
   console.log('\nAKTYWNA GRA — po jednym runie na klase (seed ' + SEEDS[0] + '):');
   table(results.active.filter((_, i) => i % SEEDS.length === 0));
+
+  // GAŁĘZIE POBOCZNE. Bot domyślnie gra gałęzią 0, więc bez tego przebiegu
+  // druga i trzecia specjalizacja każdej klasy nie są mierzone ANI RAZU —
+  // a to w nich siedzi połowa zaprojektowanej treści.
+  const sideRuns: { run: RunResult; name: string }[] = [];
+  for (const cls of CLASSES) {
+    branchesFor(cls.id).forEach((b, bi) => {
+      if (bi === 0 || b.comingSoon || b.tiers.length === 0) return;
+      sideRuns.push({ run: playRun(cls.id, SEEDS[0], 'active', bi), name: b.name });
+    });
+  }
+  if (sideRuns.length > 0) {
+    console.log('\nGALEZIE POBOCZNE — po jednym runie (seed ' + SEEDS[0] + '):');
+    console.log(
+      '\n  ' + pad('klasa', 10) + pad('galaz', 18) + padL('fala', 6) +
+        padL('lvl', 5) + padL('zabici', 8) + padL('moc x', 8) + '  wynik',
+    );
+    console.log('  ' + '-'.repeat(72));
+    for (const { run, name } of sideRuns) {
+      console.log(
+        '  ' + pad(run.classId, 10) + pad(name, 18) +
+          padL(run.waveReached, 6) + padL(run.level, 5) + padL(run.kills, 8) +
+          padL((run.damageMult * run.critExpected).toFixed(2), 8) +
+          '  ' + (run.victory ? 'WYGRANA' : run.timeout ? 'TIMEOUT' : `smierc (fala ${run.waveReached})`),
+      );
+    }
+  }
 
   const ok = determinismCheck();
   console.log(`\nCzas bencha: ${((Date.now() - started) / 1000).toFixed(1)}s`);

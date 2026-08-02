@@ -137,6 +137,8 @@ Klasa to nie tylko statystyki: każda ma **jedną sygnaturową mechanikę** (oś
 
 **Status:** roster i statystyki **wdrożone 2026-07-20**. Sygnaturowe mechaniki jeszcze nie — to w praktyce ten sam kod co talenty, więc przyjdą razem z drzewkiem.
 
+**Sygnatura z tabeli opisuje BAZĘ klasy, nie wszystkie jej ścieżki** *(doprecyzowane 2026-07-21)*. Specjalizacja może świadomie odejść od roli: niedźwiedź w gałęzi **GRAVITY MAGE** kontroluje teren z dystansu zamiast tankować, a wilk w **THUNDER FANG** traci umiejętności na rzecz combo. To jest zamierzone — wybór na 2. poziomie ma zmieniać sposób gry, a nie tylko liczby. Rola z tabeli zostaje osią klasy, bo pozostałe dwie gałęzie ją realizują.
+
 **UWAGA TECHNICZNA (blokuje zmianę rosteru):** klasa jest dziś identyfikowana **indeksem w tablicy** — `classIndex` w protokole sieciowym (`src/net/types.ts`) i `lastClassIndex` w zapisie. Usunięcie klas ze środka listy przesuwa wszystkie indeksy: stare zapisy wskażą inną klasę, a w co-opie stara i nowa wersja gry **dogadają się bez błędu i policzą dwa różne światy** (desync bez błędu w logice — bardzo trudny do znalezienia). Przed ruszeniem rosteru: przejść na identyfikatory tekstowe (`'mole'`) w protokole i zapisie + odrzucać sesję z nieznanym id.
 
 ### 5.4b Oprawa wizualna — neon sci-fi *(zrobione 2026-07-19)*
@@ -276,6 +278,8 @@ Gra przesuwa się z czystego roguelite w stronę **„dungeon runnera z postacia
 
 12 klas × 3 specjalizacje = 36 ścieżek. Przy 4 nowych umiejętnościach na ścieżkę to 144 mechaniki — to się nie skończy. Realistyczny budżet: **1–2 prawdziwe umiejętności na specjalizację, reszta liczbowo.**
 
+> **Weryfikacja po pięciu specjalizacjach *(2026-07-21)*:** budżet przekroczony — wyszły **3 pełne umiejętności na ścieżkę**, bo prymitywy okazały się reużywalne ponad oczekiwania (jeden mechanizm odbić obsłużył pięć umiejętności w dwóch klasach). Wniosek do stosowania dalej: limit dotyczy **nowych mechanik**, nie nowych **kombinacji istniejących** — patrz 5.16.
+
 **Kolejność wdrożenia:** ten sam ruch, który zadziałał przy bossach (drugi boss kosztował jeden plik) — zbudować system ogólnie, ale wypuścić **JEDNĄ specjalizację od początku do końca (kret Sniper)** i przejść z nią pełną pętlę: lobby → drzewko → run → odblokowanie. Dopiero to pokaże realny koszt jednej ścieżki.
 
 #### ~~5.10 Runy, odblokowania i tiery~~ *(porzucone — nie ma odblokowań ani tierów; pomysł „run jako dane, jeden plik = jeden run" wart zachowania na przyszłe warianty runu)*
@@ -367,20 +371,48 @@ Konfiguracja: **`src/sim/statusConfig.ts`**. Zbudowane generycznie, bo będziemy
 | `vulnerability` | osłabienia — wróg obrywa mocniej od WSZYSTKIEGO |
 | `spreadRadius` / `spreadCount` | zaraza przeskakująca z wroga na wroga |
 | `maxStacks` | nakładanie się; siła bierze najsilniejszy stack, nie iloczyn — dwa spowolnienia nie mają zatrzymywać wroga w miejscu |
+| `stuns` | ogłuszenie — wróg nie tylko stoi, ale też **nie atakuje** *(dodane 2026-07-21)* |
 
-Gotowe na start: `plague` (słaba, ale się rozprzestrzenia), `burn` (mocny DoT), `chill` (spowolnienie bez obrażeń), `weaken` (podatność).
+Gotowe: `plague` (słaba, ale się rozprzestrzenia), `burn` (mocny DoT), `chill` (spowolnienie bez obrażeń), `weaken` (podatność), `gravity-drag` (mocne, bardzo krótkie spowolnienie pola), `stun` (pełne ogłuszenie).
+
+**Dlaczego `stuns` jest osobnym polem, a nie po prostu `speedMult: 0`.** Prędkość wchodzi WYŁĄCZNIE w ruch, więc „unieruchomiony" wróg dalej zamachiwałby się i strzelał. Do tego obrażenia od dotknięcia liczone są osobną ścieżką niż jego AI — bez trzeciej bramki ogłuszony wróg stałby nieruchomo i **dalej parzył**. Ogłuszenie to więc trzy niezależne miejsca w symulacji, nie jedno; wyszło to dopiero z testu. **Bossy są odporne**, tak samo jak na odrzut — inaczej dałoby się je przetrzymać w miejscu do śmierci.
 
 **Sloty:** 3 na wroga, prealokowane. Pool ma 400 wrogów i nie może alokować w trakcie gry; czwarty status wypycha ten z najkrótszym pozostałym czasem.
 
 **AURA** — coś, co wisi NA GRACZU i działa w promieniu. Aura celująca we wrogów zwykle po prostu **nakłada status**, więc oba prymitywy dzielą słownik i jeden plik.
 
-Gotowe: `miasma` (chmura zarazy), `frostfield` (pole spowalniające), `lifetide` (leczy drużynę), `packbond` (wzmacnia sojuszników obok).
+Gotowe: `miasma` (chmura zarazy), `frostfield` (pole spowalniające), `lifetide` (leczy drużynę), `packbond` (wzmacnia sojuszników obok), `pack-fury` (wilk alfa — siła rośnie z licznikiem Pack Instinct).
+
+Aura może być też **włączana na czas** przez umiejętność (`AuraSkill`), a nie tylko nadana talentem na cały run — wtedy wolno jej być mocniejsza, bo płaci cooldownem.
 
 **Kluczowa decyzja — bonusy z aur są przeliczane OD ZERA w każdym ticku**, a nie doklejane na stałe do statystyk. Dzięki temu wyjście z pola samo zabiera bonus i nie ma żadnej księgowości „załóż / zdejmij", która jest klasycznym źródłem błędów typu „bonus został po wyjściu". Zweryfikowane testem: bonus znika w tym samym ticku, w którym sojusznik opuszcza promień.
 
 Talent włącza aurę przez `grantsAura`; aury **się sumują** (gracz może roztaczać kilka naraz).
 
 **Co odblokowują:** szczur (zaraza), wydra (leczenie drużyny), wilk (premia obok sojusznika) — a przy okazji trucizny, podpalenia, spowolnienia i osłabienia dla dowolnej przyszłej klasy.
+
+### 5.16 Prymitywy umiejętności — druga fala *(wdrożone 2026-07-21)*
+
+Pięć specjalizacji (wilk ×2, lis ×2, niedźwiedź) zbudowano na garści nowych prymitywów. Zasada bez zmian: **symulacja zna prymityw, konkretna umiejętność jest danymi.**
+
+| Prymityw | Gdzie | Co odblokował |
+|---|---|---|
+| **Odbicia pocisków** | `Projectile.chainsLeft` + `Mob.chainMark` | pasywny rykoszet wilka, łańcuch ×20 z combo, burza, strzały lisa — **pięć zastosowań, jedna implementacja** |
+| **Combo** | `comboConfig.ts` | Thunder Fang: `Q`/`W`/`E` nie robią nic same, liczy się KOLEJNOŚĆ |
+| **Ogłuszenie** | `StatusDef.stuns` | zwieńczenie pola niedźwiedzia |
+| **Portale** | `MinionDef.portal` + `fixedCount` | para portali lisa |
+| **Stop czasu** | `World.timeStopTicks` | ultimate Chronomancera |
+| **Cast dwuetapowy** | `BlinkSkill` | blink arrow |
+| **Wzmocnienie na czas** | `EmpowerSkill` | Arcane Surge |
+| **Status z ataku `slam`** | `SlamAttack.status` | pole spowalniające jako **czyste dane** |
+| **Echo jednostek** | `ConeSkill.packEcho` | Swipe powtarzany przez wilki alfy |
+| **`oneShot`, `fixedCount`** | `MinionDef` | ładunek jednorazowy; liczba sztuk jako ZASADA, nie parametr siły |
+
+**Wzorzec, który się obronił: talent PODMIENIA umiejętność zamiast dodawać liczby.** Pole niedźwiedzia bazowo tylko spowalnia; talent na 5 punktach zamienia je na wariant zadający obrażenia, a na 15 — na ogłuszający. Trzy wpisy w danych, zero kodu, a gracz widzi realne ulepszenie zamiast „+20%".
+
+**Ostrzeżenie z praktyki: nowa mechanika prawie nigdy nie jest jednym miejscem w kodzie.** Ogłuszenie okazało się trzema (ruch, AI, obrażenia od dotknięcia). Combo wymagało zmiany w **warstwie wejścia renderu**, bo ta ignorowała wciśnięcia przy pustym slocie — sama symulacja była poprawna, a gałąź i tak byłaby martwa. Testy symulacji tego nie łapią; łapie dopiero uruchomienie gry.
+
+**Zrewidowany budżet treści.** Sekcja 5.9 zakładała *1–2 prawdziwe umiejętności na specjalizację*. Faktycznie wyszło **3 na każdą z pięciu**, czyli 15 mechanik zamiast ~7. Budżet dało się przekroczyć, bo prymitywy okazały się mocno reużywalne (odbicia obsłużyły pięć umiejętności, pola grawitacyjne trzy warianty jednym mechanizmem). **Zasada zostaje w mocy dla nowych mechanik, ale nie dla nowych KOMBINACJI istniejących** — to drugie jest niemal darmowe i to na nim należy budować kolejne ścieżki.
 
 ### ~~5.11 Typy obrażeń: fizyczne i magiczne~~ *(PORZUCONE 2026-07-20, tego samego dnia)*
 
@@ -549,6 +581,13 @@ Poza MVP (świadomie później): mobile/dotyk, więcej klas i krain, boss, dźwi
 | 2026-07-20 | **Doskok w dwóch wariantach zapisanych w danych klasy** — `dash` (blokowany przeszkodami) i `jump` (nad przeszkodami, nietykalność w locie, zając) | Pomysł użytkownika; pierwsza sygnaturowa mechanika klasy, która trafiła do kodu. Wariant siedzi w `ClassDef`, więc kolejne klasy dostają swoje bez dotykania symulacji |
 | 2026-07-20 | **Loadout jako jeden kontrakt lobby↔symulacja** | Rozszerzenie działającego wzorca `MetaBonus[]`: symulacja dostaje wszystko jawnym argumentem i nigdy nie czyta zapisu sama — warunek determinizmu co-opu (5.13) |
 | 2026-07-20 | **Klasa identyfikowana tekstowym id, nie indeksem** *(dług do spłacenia przed zmianą rosteru)* | `classIndex` w protokole i `lastClassIndex` w zapisie: usunięcie klas przesuwa indeksy, a stara i nowa wersja gry dogadają się bez błędu i policzą dwa różne światy — desync bez błędu w logice (5.4) |
+| 2026-07-21 | **Pięć specjalizacji: wilk ×2, lis ×2, niedźwiedź** — po trzy umiejętności każda | Pomysły użytkownika. Zbudowane na dziewięciu nowych prymitywach, z których najważniejszy (odbicia pocisków) obsłużył pięć umiejętności w dwóch klasach (5.16, roadmap 5i) |
+| 2026-07-21 | **Wilk THUNDER FANG: specjalizacja BEZ umiejętności — same combo** | Decyzja użytkownika, która rozwiązała konflikt projektowy: skoro `Q`/`W`/`E` nic nie odpalają, sekwencje nie konkurują z cooldownami slotów i nic nie trzeba blokować ani podmieniać (5.16) |
+| 2026-07-21 | **Sojusznikiem dla ALPHA PACK jest każdy minion, także CUDZY** | Decyzja użytkownika. Bez tego gałąź byłaby martwa w runie solo; z tym napędza się sama, bo wilki spod `E` liczą się jako wataha (5.16) |
+| 2026-07-21 | **Ogłuszenie to trzy miejsca w symulacji, nie jedno** | `speedMult: 0` daje tylko unieruchomienie: wróg dalej atakuje, a obrażenia od dotknięcia idą osobną ścieżką od jego AI. Wyszło z testu, nie z projektu — warto pamiętać przy każdej kolejnej mechanice kontroli (5.15) |
+| 2026-07-21 | **Talent PODMIENIA umiejętność zamiast dodawać liczby** (pole niedźwiedzia: spowolnienie → obrażenia → ogłuszenie) | Rozwinięcie `grantsSkill` na zwykłe talenty, nie tylko specjalizacje. Trzy wpisy w danych zamiast kodu, a gracz widzi realne ulepszenie zamiast „+20%" (5.16) |
+| 2026-07-21 | ~~Czarna dziura niedźwiedzia (przyciąganie + kierunkowa modyfikacja prędkości)~~ **ODŁOŻONA**, zastąpiona polem spowalniającym | Decyzja użytkownika po wycenie: przyciąganie wymagało kierunkowej modyfikacji wektora ruchu mobów, czego silnik nie ma. Samo spowolnienie okazało się wpisem w danych po dodaniu `SlamAttack.status` — popołudnie zamiast tygodnia (5.16) |
+| 2026-07-21 | **Budżet „1–2 umiejętności na specjalizację" świadomie przekroczony (wyszło 3)** | Prymitywy okazały się reużywalne ponad założenia. Zasada zawężona: limit dotyczy nowych MECHANIK, nie nowych KOMBINACJI istniejących (5.9, 5.16) |
 
 ---
 

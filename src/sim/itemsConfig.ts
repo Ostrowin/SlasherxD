@@ -93,10 +93,12 @@ export type ItemKind =
   | 'minionDuration'
   /** Promień fali uderzeniowej doskoku (build skoczka). */
   | 'impactRadius'
-  /* Skalowanie pocisków odbijanych (`ProjectileSkill`) — na tych dwóch
-     statystykach stoi Arcane Archer lisa i Thunder Fang wilka. */
+  /* Skalowanie pocisków odbijanych (`ProjectileSkill`) — na tych statystykach
+     stoi Arcane Archer lisa i Thunder Fang wilka. */
   | 'projectileCount'
-  | 'chainCount';
+  | 'chainCount'
+  /** +% obrażeń KAŻDEGO rykoszetu/błyskawicy (obrażenia na odbicie). */
+  | 'chainDamage';
 
 export interface ItemDef {
   kind: ItemKind;

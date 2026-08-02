@@ -68,6 +68,14 @@ export interface StatusDef {
    * (tak jak na odrzut), inaczej dałoby się je przetrzymać w miejscu.
    */
   stuns?: boolean;
+
+  /**
+   * STRACH: wróg UCIEKA od najbliższego zagrożenia (gracza lub jego jednostki)
+   * zamiast gonić, i w tym czasie nie atakuje. Osobne od `stuns`, bo ogłuszony
+   * stoi, a przestraszony biegnie — to narzędzie do ROZGANIANIA hordy, nie
+   * zatrzymywania jej. Bossy są odporne, tak jak na ogłuszenie i odrzut.
+   */
+  flees?: boolean;
 }
 
 /**
@@ -124,6 +132,33 @@ export const STATUSES: StatusDef[] = [
   },
   {
     /**
+     * SOAKED — przemoczony. OŚ OBU GAŁĘZI WYDRY: support rozsiewa go falami
+     * i wirami, asasyn na nim żeruje.
+     *
+     * Sam prawie nie boli — jego wartość siedzi w `vulnerability`, czyli
+     * w tym, że każdy NASTĘPNY cios (twój i cudzy) boli mocniej. Dzięki temu
+     * wydra-support realnie podnosi obrażenia drużyny, nie mając ani jednego
+     * skilla o dużych liczbach — a asasyn dostaje premię do wejścia w cel,
+     * który sam wcześniej zmoczył. Zero kodu warunkowego: obie gałęzie
+     * korzystają z tego samego pola, które silnik i tak już liczy.
+     *
+     * Spowolnienie jest łagodne (0,85), bo od zatrzymywania hordy jest `stun`
+     * z wirów — tu chodzi o zmiękczenie, nie o kontrolę.
+     */
+    id: 'soaked',
+    name: 'SOAKED',
+    color: 0x3fa7a0,
+    durationTicks: secs(5),
+    intervalTicks: secs(1),
+    damagePerTick: 0,
+    speedMult: 0.85,
+    vulnerability: 1.3,
+    maxStacks: 1,
+    spreadRadius: 0,
+    spreadCount: 0,
+  },
+  {
+    /**
      * GRAVITY DRAG — spowolnienie pola grawitacyjnego niedźwiedzia. Mocniejsze
      * od `chill` i bardzo krótkie: pole odnawia je co tyknięcie, więc wróg
      * wychodzący z obszaru odzyskuje prędkość niemal natychmiast. To ma być
@@ -159,6 +194,25 @@ export const STATUSES: StatusDef[] = [
     spreadRadius: 0,
     spreadCount: 0,
     stuns: true,
+  },
+  {
+    /**
+     * FEAR — przerażony wróg ucieka od najbliższego zagrożenia. Krótki, bo
+     * nakłada się falami (duch pulsuje nim, kierowany przez gracza), a długi
+     * rozgoniłby całą arenę na stałe. Kolor blady fiolet — „widmowy".
+     */
+    id: 'fear',
+    name: 'FEAR',
+    color: 0xb99cff,
+    durationTicks: secs(1.5),
+    intervalTicks: secs(1),
+    damagePerTick: 0,
+    speedMult: 1,
+    vulnerability: 1,
+    maxStacks: 1,
+    spreadRadius: 0,
+    spreadCount: 0,
+    flees: true,
   },
   {
     /** WEAKEN — osłabiony wróg obrywa mocniej od wszystkiego. */
@@ -279,6 +333,62 @@ AURAS.push({
   allyHeal: 0,
   allyBuff: { kind: 'strength', value: 15 },
   scalesWithPack: true,
+});
+
+AURAS.push({
+  /**
+   * WYDRA TIDECALLER — `E`. Aura roztaczana na czas: sojusznikom pancerz
+   * i leczenie, wrogom SOAKED. Jedna z niewielu aur działających w OBIE
+   * strony naraz — i to jest cała rola supporta wydry: stojąc w drużynie
+   * jednocześnie ją trzyma przy życiu i zmiękcza wszystko dookoła.
+   *
+   * Zwieńczenie gałęzi (`EVERTIDE`) wiesza ją na stałe przez `grantsAura`,
+   * obok `lifetide` ze specjalizacji — aury się sumują.
+   */
+  id: 'tideguard',
+  name: 'TIDE GUARD',
+  color: 0x3fa7a0,
+  radius: 300,
+  intervalTicks: secs(0.5),
+  enemyStatus: 'soaked',
+  enemyDamage: 0,
+  allyHeal: 2,
+  allyBuff: { kind: 'armor', value: 3 },
+});
+
+AURAS.push({
+  /**
+   * DUCH — zając Summoner, `E`. Aura obronna: sojusznicy w promieniu dostają
+   * pancerz i leczą się w czasie. Roztaczana przez JEDNOSTKĘ (`MinionDef.auraId`),
+   * nie gracza, więc chodzi za duchem po arenie.
+   */
+  id: 'spirit-ward',
+  name: 'SPIRIT WARD',
+  color: 0xb99cff,
+  radius: 240,
+  intervalTicks: secs(0.5),
+  enemyStatus: '',
+  enemyDamage: 0,
+  allyHeal: 1,
+  allyBuff: { kind: 'armor', value: 2 },
+});
+
+AURAS.push({
+  /**
+   * GORYL — WAR ROAR (`W` IRON GRIP). Aura na czas ryku: pancerz. Tank ściąga
+   * na siebie hordę taunterem i na te kilka sekund twardnieje. Jak każda aura
+   * buffowa, solo działa na samego goryla, a w co-opie na stojących obok
+   * (`stepAuras`) — więc ryk jednocześnie chroni tanka i drużynę przy nim.
+   */
+  id: 'ironhide',
+  name: 'IRONHIDE',
+  color: 0x4a4a58,
+  radius: 300,
+  intervalTicks: secs(0.5),
+  enemyStatus: '',
+  enemyDamage: 0,
+  allyHeal: 0,
+  allyBuff: { kind: 'armor', value: 6 },
 });
 
 export function auraById(id: string): AuraDef | null {

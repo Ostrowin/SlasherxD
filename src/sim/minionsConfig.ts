@@ -37,6 +37,8 @@ export interface BoltAttack {
   chains?: number;
   chainRange?: number;
   chainFalloff?: number;
+  /** Wygląd pocisku dla renderu (pusty = kula). */
+  visual?: string;
 }
 
 /**
@@ -79,14 +81,18 @@ export interface MinionDef {
   showHpBar: boolean;
 
   /**
-   * Jednostka znika PO PIERWSZYM ataku — ładunek, nie wieżyczka.
+   * Ile razy jednostka może wykonać atak, zanim zniknie. Pominięte = bez
+   * limitu (zwykła wieżyczka żyjąca do końca `lifetimeTicks`).
    *
-   * Bez tego opóźniona detonacja musiałaby być udawana czasem życia dobranym
-   * pod czas zamachu, a to pęka przy pierwszym talencie na `minionDuration`:
-   * przedłużony ładunek zdąża naliczyć cooldown i wybucha drugi raz.
-   * Jeden bool zamyka temat i otwiera drogę minom oraz bombom.
+   * `charges: 1` to ładunek jednorazowy — bez tego opóźniona detonacja
+   * musiałaby być udawana czasem życia dobranym pod czas zamachu, a to pęka
+   * przy pierwszym talencie na `minionDuration`: przedłużony ładunek zdąża
+   * naliczyć cooldown i wybucha drugi raz.
+   *
+   * Większe wartości dają MINĘ WIELOKROTNĄ: między ładunkami obowiązuje
+   * `attackIntervalTicks`, więc to ono jest czasem ponownego uzbrojenia.
    */
-  oneShot?: boolean;
+  charges?: number;
 
   /**
    * Jednostka jest PORTALEM: gracz, który na nią wejdzie, przenosi się do
@@ -94,11 +100,49 @@ export interface MinionDef {
    */
   portal?: boolean;
   /**
+   * Aura roztaczana przez jednostkę (`AURAS` w statusConfig.ts). Ten sam
+   * mechanizm co aury graczy, tylko źródłem jest minion — dzięki temu
+   * przyszłe summony dostają aury jako DANE, bez kodu (duch summonera).
+   */
+  auraId?: string;
+
+  /**
+   * KOMENDA — sterowana przez gracza akcja jednostki (duch: rusz w kursor
+   * i siej strach). Zbudowana GENERYCZNIE pod przyszłe skille summonów:
+   * skill z `commandsMinion` (skillsConfig) wysyła jednostkę w punkt, ona
+   * leci tam przez `durationTicks` z prędkością `speed`, nakładając `status`
+   * w promieniu `statusRadius`. `cooldownTicks` to własny cooldown komendy.
+   */
+  command?: {
+    durationTicks: number;
+    speed: number;
+    status?: string;
+    statusRadius?: number;
+    cooldownTicks: number;
+  };
+  /**
+   * PUŁAPKA: jednostka nie atakuje na zegar, tylko CZEKA, aż wróg wejdzie
+   * w ten promień. Dopiero wtedy rusza jej normalny cykl ataku.
+   *
+   * Bez tego pola każda jednostka jest wieżyczką — strzela cyklicznie do
+   * najbliższego celu. Mina musi leżeć bezczynnie dowolnie długo i odpalić
+   * się w reakcji, a nie z własnej inicjatywy.
+   */
+  triggerRadius?: number;
+  /**
    * `maxActive` jest BEZWZGLĘDNE — talenty na `minionCount` go nie ruszają.
    * Potrzebne wszędzie tam, gdzie liczba sztuk jest częścią zasad, a nie
    * siły: portale muszą być dokładnie dwa, inaczej „drugi portal" traci sens.
    */
   fixedCount?: boolean;
+  /**
+   * Jednostka skaluje się WŁASNYMI statystykami gracza, nie statem sumonera
+   * (`minionDamageMult`). Wtedy `attack.damage` jest MNOŻNIKIEM obrażeń zwarcia
+   * gracza (a nie liczbą płaską), trafienie łapie kryty gracza (`rollDamage`),
+   * a interwał strzału skaluje się jego prędkością ataku. Silnik turreta
+   * buildera: to samo drzewko karmi cios gracza i jego działko.
+   */
+  scalesWithOwner?: boolean;
 }
 
 /**
@@ -149,6 +193,32 @@ export const MINIONS: MinionDef[] = [
     attackIntervalTicks: secs(0.35),
     contactDamage: 0,
     maxActive: 3,
+    showHpBar: false,
+  },
+  {
+    /**
+     * SENTRY — jeż BASTION. JEDEN przenośny turret, którego DPS rośnie
+     * WŁASNYMI statystykami gracza (`scalesWithOwner`): `damage` to mnożnik
+     * obrażeń zwarcia, a nie liczba płaska. Żyje do końca fali — gracz go
+     * repozycjonuje, nie stawia od nowa (patrz `relocates` w skillu).
+     */
+    id: 'bastion-turret',
+    name: 'SENTRY',
+    color: 0x8a9a5b,
+    shapeSides: 6,
+    radius: 16,
+    movement: 'static',
+    speed: 0,
+    hp: 0,
+    lifetimeTicks: -1,
+    attacks: [
+      { kind: 'bolt', windupTicks: 0, projectileSpeed: 520, damage: 1, range: 460, recoverTicks: 0 },
+    ],
+    attackIntervalTicks: secs(0.3),
+    contactDamage: 0,
+    maxActive: 1,
+    fixedCount: true,
+    scalesWithOwner: true,
     showHpBar: false,
   },
   {
@@ -261,7 +331,7 @@ export const MINIONS: MinionDef[] = [
      *
      * `attackIntervalTicks: 0`, bo to ono jest opóźnieniem PRZED zamachem
      * (patrz `spawnMinion`) — całe opóźnienie ma siedzieć w `windupTicks`,
-     * żeby gracz je widział. Zniknięcie po wybuchu załatwia `oneShot`.
+     * żeby gracz je widział. Zniknięcie po wybuchu załatwia `charges: 1`.
      */
     id: 'gravity-collapse',
     name: 'COLLAPSE',
@@ -276,32 +346,50 @@ export const MINIONS: MinionDef[] = [
       { kind: 'slam', windupTicks: secs(2.2), hitRadius: 210, damage: 55, knockback: 70, recoverTicks: 0 },
     ],
     attackIntervalTicks: 0,
-    oneShot: true,
+    charges: 1,
     contactDamage: 0,
     maxActive: 2,
     showHpBar: false,
   },
   {
     /**
-     * PUŁAPKA CZASOWA — lis Chronomancer, `Q`. Mała, tania, długo stoi.
-     * Sens gałęzi to ZAGĘSZCZENIE: pojedyncza pułapka jest słaba, ale
-     * `minionCount` i `minionDuration` w drzewku zamieniają arenę w pole
-     * minowe budowane przez cały run. Dlatego bazowe obrażenia są niskie,
-     * a `maxActive` już na starcie wyższe niż u totemów dzika.
+     * PUŁAPKA CZASOWA — lis Chronomancer, `Q`. MINA WIELOKROTNA, nie
+     * wieżyczka: leży bezczynnie dowolnie długo i wybucha obszarowo dopiero
+     * wtedy, gdy wróg na nią wejdzie (`triggerRadius`).
+     *
+     * `attackIntervalTicks` pełni tu DWIE role naraz i dlatego wynosi 3 s:
+     * jest czasem UZBRAJANIA po postawieniu (patrz `spawnMinion`, który
+     * zaczyna od pełnego cooldownu) i czasem PONOWNEGO uzbrojenia po każdym
+     * wybuchu. Bez tego pierwszego pułapkę dałoby się rzucać wrogowi pod nogi
+     * jak zwykły atak obszarowy, zamiast zastawiać pole minowe z wyprzedzeniem.
+     *
+     * 10 ładunków sprawia, że dobrze postawiona mina pracuje przez całą falę,
+     * a nie znika po jednym przejściu hordy. Sens gałęzi to ZAGĘSZCZENIE —
+     * `minionCount` i `minionDuration` z drzewka zamieniają arenę w pole
+     * minowe budowane przez cały run.
+     *
+     * Krótki zamach (0,15 s) jest wyłącznie tellem: render powiększa
+     * jednostkę w stanie `windup`, więc widać moment odpalenia.
      */
     id: 'chrono-trap',
     name: 'TEMPORAL TRAP',
     color: 0x38e8ff,
     shapeSides: 3,
-    radius: 11,
+    radius: 12,
     movement: 'static',
     speed: 0,
     hp: 0,
     lifetimeTicks: secs(30),
     attacks: [
-      { kind: 'bolt', windupTicks: 0, projectileSpeed: 420, damage: 4, range: 300, recoverTicks: 0 },
+      {
+        kind: 'slam', windupTicks: secs(0.15), hitRadius: 150,
+        damage: 22, knockback: 60, recoverTicks: 0,
+      },
     ],
-    attackIntervalTicks: secs(1.1),
+    // Uzbrajanie po postawieniu ORAZ przerwa między ładunkami.
+    attackIntervalTicks: secs(3),
+    triggerRadius: 60,
+    charges: 10,
     contactDamage: 0,
     maxActive: 6,
     showHpBar: false,
@@ -329,7 +417,7 @@ export const MINIONS: MinionDef[] = [
       {
         kind: 'bolt', windupTicks: 0, projectileSpeed: 600,
         damage: 3, range: 340, recoverTicks: 0,
-        chains: 2, chainRange: 240, chainFalloff: 0.9,
+        chains: 2, chainRange: 240, chainFalloff: 0.9, visual: 'lightning',
       },
     ],
     attackIntervalTicks: secs(0.15),
@@ -339,10 +427,16 @@ export const MINIONS: MinionDef[] = [
   },
   {
     /**
-     * WILK Z WATAHY — alfa, `E`. Poluje sam i bije wręcz, ale prawdziwa
-     * wartość jest gdzie indziej: każdy z nich LICZY SIĘ jako sojusznik do
-     * bonusów alfy i POWTARZA jego Swipe (`packEcho`). Dlatego pojedynczy
-     * wilk jest przeciętny, a szóstka zmienia sposób gry.
+     * WILK Z WATAHY — alfa, `E`. Poluje sam i SAM TNIE SWIPEM: własny cios
+     * obszarowy co 1,6 s, niezależnie od tego, czy alfa go akurat odpalił.
+     * Dodatkowo POWTARZA Swipe alfy (`packEcho`), więc trafienie gracza mnoży
+     * się przez całą watahę.
+     *
+     * Swipe zamiast dawnego gryzienia wręcz, bo kontakt i atak jednostki
+     * dzielą jedno pole cooldownu (`mi.attackCooldown`) — trzymanie obu
+     * poplątałoby oba. AoE i tak pasuje lepiej: wilki mają topić hordę,
+     * a nie wisieć na jednym celu. Zero odrzutu, żeby nie rozganiać własnych
+     * ofiar spod łap. Siła rośnie przez `minionDamage` z drzewka.
      */
     id: 'pack-wolf',
     name: 'WOLF',
@@ -353,9 +447,14 @@ export const MINIONS: MinionDef[] = [
     speed: 250,
     hp: 0,
     lifetimeTicks: secs(45),
-    attacks: [],
-    attackIntervalTicks: 0,
-    contactDamage: 7,
+    attacks: [
+      {
+        kind: 'slam', windupTicks: secs(0.15), hitRadius: 120,
+        damage: 9, knockback: 0, recoverTicks: 0,
+      },
+    ],
+    attackIntervalTicks: secs(1.6),
+    contactDamage: 0,
     maxActive: 4,
     showHpBar: false,
   },
@@ -471,7 +570,257 @@ export const MINIONS: MinionDef[] = [
     maxActive: 1,
     showHpBar: false,
   },
+
+  /* ── Zwierzyniec zająca SUMMONER (Q/W/E/R) ─────────────────────────────
+   * Cztery różne jednostki zamiast jednego Behemota. Wszystkie skalują się
+   * talentami gałęzi (`minionHp`/`minionDamage`/`minionCount`), więc ich
+   * bazowe liczby są celowo skromne.
+   */
+  {
+    /** GOLEM — `Q`. Wielki melee tank: podchodzi i tłucze obszarowo. */
+    id: 'sm-golem',
+    name: 'GOLEM',
+    color: 0x8d7b6a,
+    shapeSides: 6,
+    radius: 34,
+    movement: 'hunt',
+    speed: 150,
+    hp: 380,
+    // Czasowe, nie wieczne: cztery permanentne summony robiły z zająca
+    // niepokonanego (bench: 5/5 wygranych). Downtime po wygaśnięciu to koszt.
+    lifetimeTicks: secs(30),
+    attacks: [
+      { kind: 'slam', windupTicks: secs(0.35), hitRadius: 110, damage: 14, knockback: 40, recoverTicks: secs(0.3) },
+    ],
+    attackIntervalTicks: secs(1.1),
+    contactDamage: 0,
+    maxActive: 1,
+    showHpBar: true,
+  },
+  {
+    /** HYDRA — `W`. Wielogłowy pluj: szybkie pociski w najbliższego wroga. */
+    id: 'sm-hydra',
+    name: 'HYDRA',
+    color: 0x4caf7d,
+    shapeSides: 5,
+    radius: 24,
+    movement: 'hunt',
+    speed: 120,
+    hp: 190,
+    lifetimeTicks: secs(30),
+    attacks: [
+      { kind: 'bolt', windupTicks: 0, projectileSpeed: 480, damage: 7, range: 460, recoverTicks: 0 },
+    ],
+    attackIntervalTicks: secs(0.4),
+    contactDamage: 0,
+    maxActive: 1,
+    showHpBar: true,
+  },
+  {
+    /**
+     * DUCH — `E`. Nie walczy: roztacza AURĘ obronną (pancerz + leczenie),
+     * a na komendę gracza rusza w stronę kursora, siejąc STRACH. Trzyma się
+     * gracza, żeby aura była tam, gdzie on.
+     */
+    id: 'sm-ghost',
+    name: 'SPIRIT',
+    color: 0xb99cff,
+    shapeSides: 3,
+    radius: 20,
+    movement: 'follow',
+    speed: 240,
+    hp: 140,
+    lifetimeTicks: secs(20),
+    attacks: [],
+    attackIntervalTicks: 0,
+    contactDamage: 0,
+    maxActive: 1,
+    showHpBar: true,
+    auraId: 'spirit-ward',
+    command: {
+      durationTicks: secs(1.2),
+      speed: 520,
+      status: 'fear',
+      statusRadius: 150,
+      cooldownTicks: secs(7),
+    },
+  },
+  {
+    /**
+     * CHOCHLIK — rój spod `R`. Wiele słabych, krótko żyjących stworków, jak
+     * wskrzeszeni hieny: siła w liczbie. Ultimate stawia ich naraz kilka.
+     */
+    id: 'sm-imp',
+    name: 'IMP',
+    color: 0xd08cff,
+    shapeSides: 4,
+    radius: 10,
+    movement: 'hunt',
+    speed: 300,
+    hp: 0,
+    lifetimeTicks: secs(12),
+    attacks: [],
+    attackIntervalTicks: 0,
+    contactDamage: 5,
+    maxActive: 24,
+    showHpBar: false,
+  },
+  {
+    /**
+     * NIETOPERZ Z ROJU — `R` NIGHT TERROR. Wiele słabych, krótko żyjących
+     * stworków polujących samodzielnie; siła w liczbie, jak chochliki zająca.
+     */
+    id: 'bat-swarmling',
+    name: 'BAT',
+    color: 0x8e44ad,
+    shapeSides: 3,
+    radius: 9,
+    movement: 'hunt',
+    speed: 320,
+    hp: 0,
+    lifetimeTicks: secs(10),
+    attacks: [],
+    attackIntervalTicks: 0,
+    contactDamage: 5,
+    maxActive: 24,
+    showHpBar: false,
+  },
+
+  /* ── Wydra TIDECALLER: wiry ────────────────────────────────────────────
+   * Oba stoją na tym samym trik co Singularity niedźwiedzia: DWA ataki na
+   * przemian, więc ogłuszenie PULSUJE zamiast trzymać hordę zamrożoną.
+   * Cała siła gałęzi rośnie przez `minionDamage` — wydra bije terenem,
+   * nie łapą, i dlatego support może mieć obrażenia bez bycia damage dealerem.
+   */
+  {
+    /**
+     * WIR — `W`. Pierwszy atak moczy i podgryza, drugi ogłusza. Przy 0,5 s
+     * interwału daje to stun co sekundę, a między nimi okno na ucieczkę —
+     * horda przechodzi przez wir szarpnięciami, zamiast w nim zamarzać.
+     */
+    id: 'tide-whirl',
+    name: 'WHIRLPOOL',
+    color: 0x3fa7a0,
+    shapeSides: 8,
+    radius: 20,
+    movement: 'static',
+    speed: 0,
+    hp: 0,
+    lifetimeTicks: secs(8),
+    attacks: [
+      {
+        kind: 'slam', windupTicks: 0, hitRadius: 190,
+        damage: 4, knockback: 0, status: 'soaked', recoverTicks: 0,
+      },
+      {
+        kind: 'slam', windupTicks: 0, hitRadius: 190,
+        damage: 2, knockback: 0, status: 'stun', recoverTicks: 0,
+      },
+    ],
+    // Zero odrzutu w obu atakach celowo: wypychanie wrogów z wiru sprawiłoby,
+    // że skill zwalcza sam siebie (ta sama lekcja co przy `quake-field`).
+    //
+    // 0,7 s, a nie 0,5 s (bench 2026-07-24): przy pół sekundy ogłuszenie
+    // wracało co sekundę, a `Storm Surge` pozwala mieć pięć wirów naraz —
+    // nakładały się w stały paraliż całej areny. Teraz stun wraca co 1,4 s,
+    // czyli zostaje PULSEM z oknem na ruch, zgodnie z lekcją z `Singularity`.
+    attackIntervalTicks: secs(0.7),
+    contactDamage: 0,
+    maxActive: 2,
+    showHpBar: false,
+  },
+  {
+    /**
+     * MAELSTROM — `R`. Ten sam wzorzec co wir, ale w skali ultimate: pierścień
+     * pocisków na wylot plus ogłuszenie w bardzo dużym promieniu. Jedna sztuka
+     * i 10 s życia — ma być WYDARZENIEM, które ratuje drużynę z otoczenia.
+     */
+    id: 'tide-maelstrom',
+    name: 'MAELSTROM',
+    color: 0x2a7fa8,
+    shapeSides: 10,
+    radius: 30,
+    movement: 'static',
+    speed: 0,
+    hp: 0,
+    lifetimeTicks: secs(10),
+    attacks: [
+      {
+        kind: 'ring', windupTicks: secs(0.2), count: 16,
+        projectileSpeed: 300, damage: 6, recoverTicks: 0,
+      },
+      {
+        kind: 'slam', windupTicks: 0, hitRadius: 300,
+        damage: 4, knockback: 0, status: 'stun', recoverTicks: 0,
+      },
+    ],
+    attackIntervalTicks: secs(0.7),
+    contactDamage: 0,
+    maxActive: 1,
+    // Jedyność maelstromu jest ZASADĄ, nie siłą: `Storm Surge` z tej samej
+    // gałęzi dokłada wiry spod `W`, a bez tej flagi zwielokrotniłby też
+    // ultimate — cztery maelstromy naraz to nie jest ulepszenie, tylko inna gra.
+    fixedCount: true,
+    showHpBar: false,
+  },
+
+  {
+    /**
+     * KLON — wydra MIRROR TIDE. Rdzeń gałęzi asasyna i najtańsza jednostka
+     * w grze pod względem kodu: STOI, sam z siebie kłuje wodną igłą, a całą
+     * jego wartość robi `packEcho` na `Q` (patrz `mirror-lance`) — powtarza
+     * cios gracza ze swojej pozycji.
+     *
+     * Dlatego jego własne liczby są celowo skromne: klon ma być ustawieniem
+     * kąta ataku, a nie wieżyczką. Osiem klonów rozstawionych po obwodzie
+     * tłumu zamienia jedno wciśnięcie `Q` w dziewięć cięć z dziewięciu stron —
+     * i to jest fantazja tej gałęzi, nie pasywny DPS.
+     *
+     * `hp: 0` (niezniszczalny) jak wilki z watahy i pułapki lisa: limitem
+     * jest `maxActive` i czas życia, nie zdrowie.
+     */
+    id: 'mirror-clone',
+    name: 'MIRROR',
+    color: 0x7fd4d0,
+    shapeSides: 5,
+    radius: 13,
+    movement: 'static',
+    speed: 0,
+    hp: 0,
+    lifetimeTicks: secs(20),
+    // Igła podbita po benchu (3 → 5 obrażeń co 0,6 s): gałąź jest POZYCYJNA,
+    // więc gracz, który postawi klony źle, i tak traci ich echo z `Q`.
+    // Własny ostrzał musi być na tyle sensowny, żeby źle rozstawione stado
+    // nie było zerem — inaczej jedyny błąd w gałęzi kosztuje cały build.
+    attacks: [
+      { kind: 'bolt', windupTicks: 0, projectileSpeed: 520, damage: 5, range: 340, recoverTicks: 0 },
+    ],
+    attackIntervalTicks: secs(0.6),
+    contactDamage: 0,
+    // Cztery, a nie trzy: `R` stawia cztery klony naraz, więc przy limicie 3
+    // ultimate kasowałby własnego pierwszego klona w tym samym ticku, w którym
+    // go postawił. Bazowy limit musi pomieścić to, co obiecuje umiejętność.
+    maxActive: 4,
+    showHpBar: false,
+  },
 ];
+
+/**
+ * Promień, w jakim jednostka działa OBSZAROWO (`slam`), albo 0.
+ *
+ * Render rysuje z tego okrąg pola. Bez niego gracz widzi tylko sylwetkę
+ * o promieniu `radius` (~20 px) i nie ma pojęcia, że pole spowalnia
+ * wszystko w promieniu 200 px — czyli że postawił je w dobrym miejscu.
+ * Ataki `bolt` celowo pomijamy: strzelają w POJEDYNCZY cel, więc okrąg
+ * zasięgu byłby szumem, a nie informacją.
+ */
+export function minionEffectRadius(def: MinionDef): number {
+  let r = 0;
+  for (const a of def.attacks) {
+    if (a.kind === 'slam') r = Math.max(r, a.hitRadius);
+  }
+  return r;
+}
 
 export function minionById(id: string): MinionDef | null {
   return MINIONS.find((m) => m.id === id) ?? null;

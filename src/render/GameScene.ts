@@ -1,14 +1,14 @@
 import Phaser from 'phaser';
-import { World, withoutOneShots, type Player, type SimInput } from '../sim/world';
+import { World, withoutOneShots, type Mob, type Player, type SimInput } from '../sim/world';
 import { CLASSES, classById, DEFAULT_CLASS_ID, type ClassDef } from '../sim/classes';
 import { ENEMIES } from '../sim/enemies';
 import { BOSSES, type BossDef } from '../sim/bosses';
 import { sfx } from './audio';
 import { ALPHA_PACK, branchesFor, PROGRESSION, talentSlotsFor } from '../sim/talentsConfig';
-import { SKILL_KEYS } from '../sim/skillsConfig';
+import { SKILL_KEYS, skillById, type ConeSkill } from '../sim/skillsConfig';
 import { COMBOS } from '../sim/comboConfig';
-import { MINIONS, type MinionDef } from '../sim/minionsConfig';
-import { STATUSES, auraById } from '../sim/statusConfig';
+import { MINIONS, minionEffectRadius, type MinionDef } from '../sim/minionsConfig';
+import { AURAS, STATUSES, auraById } from '../sim/statusConfig';
 import { DROP_CONFIG, ITEMS } from '../sim/itemsConfig';
 import { UPGRADES, WAVE_CONFIG } from '../sim/wavesConfig';
 import { CURRENCY_NAME, computeReward } from '../sim/metaConfig';
@@ -73,6 +73,8 @@ export class GameScene extends Phaser.Scene {
   private playerSprites: Phaser.GameObjects.Image[] = [];
   /** Paski HP i etykiety nad kolegami z drużyny (lokalny gracz ich nie ma). */
   private teamBars!: Phaser.GameObjects.Graphics;
+  /** Okręgi pokazujące, jak daleko sięgają pola obszarowe (`slam`). */
+  private fieldRings!: Phaser.GameObjects.Graphics;
   private bossBar!: Phaser.GameObjects.Graphics;
   private bossName!: Phaser.GameObjects.Text;
   private lastSeenBossPhaseTick = -1;
@@ -84,6 +86,9 @@ export class GameScene extends Phaser.Scene {
   /** Panel talentów (klawisz T) — działa też w trakcie fali, bo co-op nie ma pauzy. */
   private talentUi: Phaser.GameObjects.GameObject[] = [];
   private talentPanelOpen = false;
+  /** Slot, dla którego trwa wybór miejsca (-1 = nie celujemy). */
+  private aimingSlot = -1;
+  private lmbWasDown = false;
   private pendingTalentPick = -1;
   /**
    * Bufory wejść JEDNORAZOWYCH. Render chodzi szybciej niż symulacja, więc
@@ -111,6 +116,14 @@ export class GameScene extends Phaser.Scene {
   }
   private mobSprites: Phaser.GameObjects.Image[] = [];
   private projectileSprites: Phaser.GameObjects.Image[] = [];
+  /** Rysowane błyskawice (pociski `visual: 'lightning'`) — zamiast kuli. */
+  private lightningGfx!: Phaser.GameObjects.Graphics;
+  /** Punkt startu bieżącego łuku per slot pocisku (ostatnie odbicie/spawn). */
+  private lightOriginX: number[] = [];
+  private lightOriginY: number[] = [];
+  /** Ile odbić miał pocisk w tym slocie poprzednią klatkę — do wykrycia skoku. */
+  private lightPrevChains: number[] = [];
+  private lightWasAlive: boolean[] = [];
   private meleeRing!: Phaser.GameObjects.Arc;
   private lastSeenMeleeTick = -1;
   private moveMarker!: Phaser.GameObjects.Arc;
@@ -121,6 +134,12 @@ export class GameScene extends Phaser.Scene {
   private lastSeenShieldTick = -1;
   private deathParticles!: Phaser.GameObjects.Particles.ParticleEmitter;
   private telegraphs!: Phaser.GameObjects.Graphics;
+  /** Pierścień pod wybranym wrogiem (unit-select) — rysowany co klatkę. */
+  private targetRing!: Phaser.GameObjects.Graphics;
+  /** Liny hooków i wiązki/pierścienie kanałowania — nad mobkami. */
+  private fxGfx!: Phaser.GameObjects.Graphics;
+  /** Tymczasowe ściany (`WallSkill`) — pod mobkami, jak teren. */
+  private wallGfx!: Phaser.GameObjects.Graphics;
   /** Stan „żywy" z poprzedniej klatki — wykrywa moment śmierci dla cząsteczek. */
   private mobWasAlive: boolean[] = [];
   private starsFar!: Phaser.GameObjects.TileSprite;
@@ -211,6 +230,8 @@ export class GameScene extends Phaser.Scene {
     this.announcedDrops = 0;
     this.talentUi = [];
     this.talentPanelOpen = false;
+    this.aimingSlot = -1;
+    this.lmbWasDown = false;
     this.pendingTalentPick = -1;
     this.pendingSkillCast = -1;
     this.pendingDash = false;
@@ -279,6 +300,14 @@ export class GameScene extends Phaser.Scene {
       this.add.image(p.x, p.y, 'player').setTint(p.cls.color).setDepth(3),
     );
     this.teamBars = this.add.graphics().setDepth(7);
+    // Głębokość 2: POD jednostkami i wrogami, żeby okrąg pola był tłem,
+    // a nie przykrywał tego, co się w nim dzieje.
+    this.fieldRings = this.add.graphics().setDepth(2);
+    // Ponad mobkami (depth 2), żeby pierścień celu był zawsze widoczny.
+    this.targetRing = this.add.graphics().setDepth(3);
+    // Ściany pod mobkami (teren), liny/wiązki nad nimi.
+    this.wallGfx = this.add.graphics().setDepth(1);
+    this.fxGfx = this.add.graphics().setDepth(4).setBlendMode(Phaser.BlendModes.ADD);
     this.bossBar = this.add.graphics().setScrollFactor(0).setDepth(15);
     this.bossName = this.add
       .text(0, 0, '', { fontFamily: 'monospace', fontSize: '18px', color: '#ffffff' })
@@ -294,6 +323,12 @@ export class GameScene extends Phaser.Scene {
         this.add.image(0, 0, 'projectile').setVisible(false).setBlendMode(Phaser.BlendModes.ADD).setDepth(3),
       );
     }
+    // Jeden Graphics na wszystkie błyskawice — czyszczony i rysowany co klatkę.
+    this.lightningGfx = this.add.graphics().setBlendMode(Phaser.BlendModes.ADD).setDepth(4);
+    this.lightOriginX = new Array(C.PROJECTILE_CAP).fill(0);
+    this.lightOriginY = new Array(C.PROJECTILE_CAP).fill(0);
+    this.lightPrevChains = new Array(C.PROJECTILE_CAP).fill(0);
+    this.lightWasAlive = new Array(C.PROJECTILE_CAP).fill(false);
     this.mobWasAlive = new Array(C.MOB_CAP).fill(false);
 
     // Cząsteczki po rozbitym najeźdźcy — jeden pooled emiter na całą scenę.
@@ -504,20 +539,44 @@ export class GameScene extends Phaser.Scene {
     // Wciśnięcie ZAPAMIĘTUJEMY, zamiast używać od razu: `JustDown` jest
     // prawdziwe tylko przez jedną klatkę, a tick symulacji wypada mniej
     // więcej co drugą. Bez bufora połowa wciśnięć znikała bez śladu.
+    const lmb = pointer.leftButtonDown();
     if (!uiBlocking) {
-      const skillKeys = [this.keys.q, this.keys.w, this.keys.e];
+      const skillKeys = [this.keys.q, this.keys.w, this.keys.e, this.keys.r];
       // Specjalizacja oparta na COMBO ma sloty PUSTE i nie ma cooldownów per
       // klawisz — wciśnięcie musi dojść do symulacji mimo to, inaczej
       // sekwencje nigdy by się nie złożyły i gałąź byłaby martwa.
       const comboUser = this.me.comboIds.length > 0;
       for (let i = 0; i < skillKeys.length; i++) {
+        if (!Phaser.Input.Keyboard.JustDown(skillKeys[i])) continue;
         const slotReady = this.me.skillIds[i] && this.me.skillCooldowns[i] <= 0;
-        if ((slotReady || comboUser) && Phaser.Input.Keyboard.JustDown(skillKeys[i])) {
+        if (!slotReady && !comboUser) continue;
+
+        // Skill CELOWANY nie odpala się od razu: klawisz włącza podgląd
+        // miejsca, a dopiero LMB stawia. Ponowne wciśnięcie tego samego
+        // klawisza anuluje — inaczej nie dałoby się rozmyślić bez rzucenia.
+        if (this.isAimedSkill(i)) this.aimingSlot = this.aimingSlot === i ? -1 : i;
+        else {
+          this.aimingSlot = -1;
           this.pendingSkillCast = i;
-          break;
+        }
+        break;
+      }
+
+      if (this.aimingSlot >= 0) {
+        // LMB zatwierdza w miejscu kursora (`aimX`/`aimY` i tak nim są),
+        // RMB anuluje — bo RMB to chodzenie, a chęć odejścia oznacza rezygnację.
+        if (lmb && !this.lmbWasDown) {
+          this.pendingSkillCast = this.aimingSlot;
+          this.aimingSlot = -1;
+        } else if (rmb) {
+          this.aimingSlot = -1;
         }
       }
+    } else {
+      this.aimingSlot = -1;
     }
+    if (this.me.dead) this.aimingSlot = -1;
+    this.lmbWasDown = lmb;
     const skillCast = uiBlocking ? -1 : this.pendingSkillCast;
     // Spacja = doskok. Własny cooldown, więc nie konkuruje ze skillem.
     // Doskok buforujemy tak samo jak skille — z tego samego powodu.
@@ -558,6 +617,103 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
+   * Render skilli, które trzymają stan w symulacji, ale nie mają sprite'ów:
+   * liny hooków, tymczasowe ściany i wiązki/pierścienie kanałowania. Rysowane
+   * co klatkę z interpolacją, jak reszta świata.
+   */
+  private drawSkillFx(alpha: number): void {
+    const w = this.world;
+    const lerp = Phaser.Math.Linear;
+
+    // ── Ściany (WallSkill): kamienne słupy, gasną w ostatniej sekundzie ──
+    this.wallGfx.clear();
+    for (const wall of w.walls) {
+      if (!wall.alive) continue;
+      const fade = Math.min(1, wall.ttl / 30);
+      this.wallGfx
+        .lineStyle(Math.max(4, wall.thickness), 0x6b5a3a, 0.55 * fade)
+        .lineBetween(wall.x1, wall.y1, wall.x2, wall.y2)
+        .lineStyle(Math.max(2, wall.thickness * 0.4), 0xd9c27a, 0.9 * fade)
+        .lineBetween(wall.x1, wall.y1, wall.x2, wall.y2);
+    }
+
+    // ── Liny hooków + kanałowanie (warstwa ADD, świeci) ──
+    this.fxGfx.clear();
+
+    for (const h of w.hooks) {
+      if (!h.alive) continue;
+      const owner = w.players[h.ownerIndex];
+      if (!owner) continue;
+      const ox = lerp(owner.prevX, owner.x, alpha);
+      const oy = lerp(owner.prevY, owner.y, alpha);
+      const hx = lerp(h.prevX, h.x, alpha);
+      const hy = lerp(h.prevY, h.y, alpha);
+      this.fxGfx
+        .lineStyle(3, 0xbfa76a, 0.9)
+        .lineBetween(ox, oy, hx, hy)
+        .fillStyle(0xffe9a8, 1)
+        .fillCircle(hx, hy, 6);
+    }
+
+    for (const p of w.players) {
+      if (p.dead || p.channelTicks <= 0) continue;
+      const skill = skillById(p.channelSkillId);
+      if (skill.kind !== 'channel') continue;
+      const px = lerp(p.prevX, p.x, alpha);
+      const py = lerp(p.prevY, p.y, alpha);
+      const pay = skill.payload;
+      const puls = 0.55 + 0.45 * Math.sin(w.tick * 0.5);
+
+      if (pay.type === 'drainNova') {
+        this.fxGfx
+          .fillStyle(0xb043d0, 0.05)
+          .fillCircle(px, py, pay.radius)
+          .lineStyle(3, 0xd06ae0, 0.4 + 0.4 * puls)
+          .strokeCircle(px, py, pay.radius);
+      } else if (pay.type === 'vortex') {
+        this.fxGfx
+          .lineStyle(3, 0x9a7bff, 0.5 + 0.4 * puls)
+          .strokeCircle(p.channelX, p.channelY, pay.radius);
+      } else {
+        // drain: wiązka do celu, który sączy silnik (targetMob albo najbliższy).
+        const target = this.drainTargetOf(p, pay.targetRadius);
+        if (target) {
+          const tx = lerp(target.prevX, target.x, alpha);
+          const ty = lerp(target.prevY, target.y, alpha);
+          this.fxGfx
+            .lineStyle(3, 0xe0556a, 0.5 + 0.4 * puls)
+            .lineBetween(px, py, tx, ty)
+            .fillStyle(0xffb0c0, 0.9)
+            .fillCircle(tx, ty, 5);
+        }
+      }
+    }
+  }
+
+  /** Mob, do którego silnik prowadzi drain — render rysuje do niego wiązkę. */
+  private drainTargetOf(p: Player, radius: number): Mob | null {
+    const w = this.world;
+    if (p.targetMob >= 0) {
+      const t = w.mobs[p.targetMob];
+      if (t?.alive) {
+        const dx = t.x - p.x;
+        const dy = t.y - p.y;
+        if (dx * dx + dy * dy <= radius * radius) return t;
+      }
+    }
+    let best: Mob | null = null;
+    let bestD2 = radius * radius;
+    for (const m of w.mobs) {
+      if (!m.alive) continue;
+      const dx = m.x - p.x;
+      const dy = m.y - p.y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 < bestD2) { bestD2 = d2; best = m; }
+    }
+    return best;
+  }
+
+  /**
    * Telegrafy ciężkich ataków: krąg rażenia wypełnia się w trakcie zamachu.
    * Bez tego młot Brute'a byłby niesprawiedliwy — gracz musi WIDZIEĆ,
    * gdzie i kiedy spadnie cios.
@@ -567,20 +723,27 @@ export class GameScene extends Phaser.Scene {
     this.telegraphs.clear();
 
     // Aury: delikatny okrąg zasięgu wokół właściciela. Rysujemy dla WSZYSTKICH
-    // graczy — w co-opie trzeba widzieć, gdzie sięga pole kolegi.
+    // graczy — w co-opie trzeba widzieć, gdzie sięga pole kolegi. Obok aur
+    // STAŁYCH (`auraIds`) rysujemy też te NA CZAS (`auraTicks`), czyli m.in.
+    // ryk goryla (WAR ROAR / ironhide) i Tide Guard wydry.
     w.players.forEach((p, i) => {
-      if (p.dead || p.auraIds.length === 0) return;
+      if (p.dead) return;
       const s = this.playerSprites[i];
-      for (const id of p.auraIds) {
-        const aura = auraById(id);
-        if (!aura) continue;
-        const puls = 1 + Math.sin(w.tick * 0.12) * 0.02;
+      const puls = 1 + Math.sin(w.tick * 0.12) * 0.02;
+      const ring = (aura: { color: number; radius: number }): void => {
         this.telegraphs
           .lineStyle(2, aura.color, 0.35)
           .strokeCircle(s.x, s.y, aura.radius * puls)
           .fillStyle(aura.color, 0.05)
           .fillCircle(s.x, s.y, aura.radius * puls);
+      };
+      for (const id of p.auraIds) {
+        const aura = auraById(id);
+        if (aura) ring(aura);
       }
+      p.auraTicks.forEach((ticks, ai) => {
+        if (ticks > 0 && AURAS[ai]) ring(AURAS[ai]);
+      });
     });
 
     // Telegraf bossa — czytamy promień z aktualnie szykowanego ataku.
@@ -855,8 +1018,16 @@ export class GameScene extends Phaser.Scene {
           const maxed = rank >= def.maxRank;
           const canBuy = !tierLocked && !maxed && me.talentPoints > 0;
 
-          const offset = tier.talents.length === 1 ? 0 : (k === 0 ? -72 : 72);
-          const x = cx + offset;
+          // Layout dla DOWOLNEJ liczby talentów w rzędzie. Wcześniej było to
+          // zaszyte pod dwa (`k === 0 ? -72 : 72`), więc trzeci rysował się
+          // dokładnie na drugim — a rzędy po trzy pojawiły się razem
+          // z ulepszeniami pola niedźwiedzia.
+          const count = tier.talents.length;
+          const slotW = colW / Math.max(1, count);
+          const boxW = tier.isSpec
+            ? 250
+            : Math.min(136, Math.max(84, slotW - 10));
+          const x = cx + (k - (count - 1) / 2) * (count > 1 ? slotW : 0);
 
           const stroke = maxed
             ? (tier.isSpec ? 0x39ff14 : 0xffd166)
@@ -864,7 +1035,7 @@ export class GameScene extends Phaser.Scene {
           const box = this.add
             // Rząd specjalizacji jest szerszy — mieści dłuższy opis i wizualnie
             // odstaje od zwykłych talentów, bo to decyzja innej wagi.
-            .rectangle(x, rowY + 14, tier.isSpec ? 250 : 136, 62, tier.isSpec ? 0x111a2b : 0x0d1420)
+            .rectangle(x, rowY + 14, boxW, 62, tier.isSpec ? 0x111a2b : 0x0d1420)
             .setStrokeStyle(2, stroke)
             .setScrollFactor(0)
             .setDepth(21);
@@ -881,15 +1052,26 @@ export class GameScene extends Phaser.Scene {
           add(
             this.add
               .text(x, rowY, def.name, {
-                fontFamily: 'monospace', fontSize: '12px', color: maxed ? '#ffd166' : dim,
+                fontFamily: 'monospace',
+                // Wąskie boxy (rzędy po trzy talenty) dostają mniejszą
+                // czcionkę — inaczej dłuższe nazwy wystają poza ramkę.
+                fontSize: boxW < 120 ? 10 : 12,
+                color: maxed ? '#ffd166' : dim,
+                align: 'center',
+                wordWrap: { width: boxW - 8 },
               })
               .setOrigin(0.5).setScrollFactor(0).setDepth(22),
           );
           add(
             this.add
-              .text(x, rowY + 17, def.desc, {
-                fontFamily: 'monospace', fontSize: tier.isSpec ? 9 : 10,
+              .text(x, rowY + 16, def.desc, {
+                fontFamily: 'monospace', fontSize: 9,
                 color: tierLocked ? '#3d4652' : '#8899aa',
+                // ZAWIJANIE, nie przycinanie: opis, który nie mieści się
+                // w boxie, ma zejść do drugiej linijki, a nie wyjechać poza
+                // ramkę i nachodzić na sąsiedni talent.
+                align: 'center',
+                wordWrap: { width: boxW - 14 },
               })
               .setOrigin(0.5).setScrollFactor(0).setDepth(22),
           );
@@ -1282,22 +1464,57 @@ export class GameScene extends Phaser.Scene {
       s.setPosition(Phaser.Math.Linear(m.prevX, m.x, alpha), Phaser.Math.Linear(m.prevY, m.y, alpha));
     }
 
+    // Pierścień pod WYBRANYM celem (unit-select) — na pozycji sprite'a, więc
+    // płynie razem z interpolacją moba.
+    this.targetRing.clear();
+    const tIdx = this.me.targetMob;
+    if (tIdx >= 0 && w.mobs[tIdx].alive) {
+      const tm = w.mobs[tIdx];
+      const trad = tm.bossIndex >= 0 ? BOSSES[tm.bossIndex].radius : ENEMIES[tm.defIndex].radius;
+      const ts = this.mobSprites[tIdx];
+      this.targetRing.lineStyle(2, 0xffee66, 0.95);
+      this.targetRing.strokeCircle(ts.x, ts.y, trad + 7);
+    }
+
     this.drawTelegraphs();
+    this.drawSkillFx(alpha);
 
     // Parallax: gwiazdy przesuwają się wolniej niż świat (głębia).
     const cam = this.cameras.main;
     this.starsFar.setTilePosition(cam.scrollX * 0.12, cam.scrollY * 0.12);
     this.starsNear.setTilePosition(cam.scrollX * 0.3, cam.scrollY * 0.3);
 
+    this.lightningGfx.clear();
     for (let i = 0; i < w.projectiles.length; i++) {
       const p = w.projectiles[i];
       const s = this.projectileSprites[i];
       if (!p.alive) {
         if (s.visible) s.setVisible(false);
+        this.lightWasAlive[i] = false;
         continue;
       }
+      const cx = Phaser.Math.Linear(p.prevX, p.x, alpha);
+      const cy = Phaser.Math.Linear(p.prevY, p.y, alpha);
+
+      if (p.visual === 'lightning') {
+        // Kula chowa się — błyskawicę rysujemy liniami.
+        if (s.visible) s.setVisible(false);
+        // Start łuku: nowy pocisk w slocie ALBO odbicie (spadł licznik skoków).
+        const nowy = !this.lightWasAlive[i] || p.chainsLeft > this.lightPrevChains[i];
+        const skok = p.chainsLeft < this.lightPrevChains[i];
+        if (nowy || skok) {
+          this.lightOriginX[i] = cx;
+          this.lightOriginY[i] = cy;
+        }
+        this.lightPrevChains[i] = p.chainsLeft;
+        this.lightWasAlive[i] = true;
+        this.drawLightning(this.lightOriginX[i], this.lightOriginY[i], cx, cy);
+        continue;
+      }
+
+      this.lightWasAlive[i] = false;
       if (!s.visible) s.setVisible(true).setTint(0x00ccff);
-      s.setPosition(Phaser.Math.Linear(p.prevX, p.x, alpha), Phaser.Math.Linear(p.prevY, p.y, alpha));
+      s.setPosition(cx, cy);
     }
 
     this.playCombatSounds();
@@ -1388,6 +1605,7 @@ export class GameScene extends Phaser.Scene {
 
     // Sojusznicze jednostki: jaśniejsze i z obwódką, żeby w hordzie było
     // od razu widać, co jest nasze, a co wroga.
+    this.fieldRings.clear();
     for (let i = 0; i < w.minions.length; i++) {
       const mi = w.minions[i];
       const s = this.minionSprites[i];
@@ -1405,8 +1623,32 @@ export class GameScene extends Phaser.Scene {
       );
       // Zamach jednostki „puchnie" — ten sam język wizualny co u wrogów.
       s.setScale(mi.state === 'windup' ? 1.2 : 1);
+      // Mina w trakcie uzbrajania jest PRZYGASZONA. Bez tego gracz nie wie,
+      // czy pułapka, po której właśnie depcze wróg, zaraz wybuchnie, czy
+      // dopiero się ładuje — a przy 3 s uzbrajania to różnica całej fali.
+      const uzbraja = def.triggerRadius !== undefined && mi.attackCooldown > 0;
       // Migotanie tuż przed zniknięciem: gracz wie, że totem zaraz wygaśnie.
-      s.setAlpha(mi.ttl > 0 && mi.ttl < 60 && Math.floor(mi.ttl / 5) % 2 === 0 ? 0.35 : 1);
+      s.setAlpha(
+        mi.ttl > 0 && mi.ttl < 60 && Math.floor(mi.ttl / 5) % 2 === 0
+          ? 0.35
+          : uzbraja ? 0.4 : 1,
+      );
+
+      // OBSZAR DZIAŁANIA pola. Sylwetka ma ~20 px, a pole sięga 200 —
+      // bez tego okręgu gracz nie wie, czy postawił je dobrze. Tylko dla
+      // jednostek NIERUCHOMYCH: okrąg to informacja o STAWIANIU, a przy
+      // biegających wilkach czy Behemocie byłby wyłącznie wizualnym szumem.
+      const effect = def.movement === 'static' ? minionEffectRadius(def) : 0;
+      if (effect > 0) {
+        // Puls zsynchronizowany z tyknięciem ataku: widać, że pole PRACUJE,
+        // a nie tylko leży. Zamach dodatkowo je rozjaśnia.
+        const puls = (mi.state === 'windup' ? 0.22 : 0.1) * (uzbraja ? 0.35 : 1);
+        this.fieldRings
+          .fillStyle(def.color, puls * 0.45)
+          .fillCircle(s.x, s.y, effect)
+          .lineStyle(2, def.color, puls + 0.25)
+          .strokeCircle(s.x, s.y, effect);
+      }
 
       // Duzi przywołańcy dostają pasek HP — tak samo jak koledzy z drużyny.
       if (def.showHpBar && mi.maxHp > 0) {
@@ -1463,13 +1705,53 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
-    // Podgląd zasięgu skilla — pokazuje się SAM, gdy skill jest gotowy.
-    // Przy quick caście to jedyna informacja o tym, gdzie trafi cios.
-    const previewSkill = w.skillOf(me);
-    if (
-      previewSkill?.kind === 'cone' && me.skillCooldowns[0] <= 0 &&
+    // TRYB CELOWANIA (skille z `aimed`): pokazujemy DOKĄD wolno rzucić
+    // i CO obejmie efekt, zanim cokolwiek się stanie.
+    const aimedSkill = this.aimingSlot >= 0 ? w.skillOf(me, this.aimingSlot) : null;
+    if (aimedSkill?.kind === 'summon') {
+      const pointer = this.input.activePointer;
+      const cursor = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+      const px = this.playerSprite.x;
+      const py = this.playerSprite.y;
+
+      // Punkt przycinamy do zasięgu DOKŁADNIE tak, jak zrobi to symulacja
+      // (`aimPoint`), żeby podgląd nie kłamał o miejscu postawienia.
+      let tx = cursor.x;
+      let ty = cursor.y;
+      const dx = tx - px;
+      const dy = ty - py;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist > aimedSkill.placeRange || dist < 0.001) {
+        const ux = dist > 0.001 ? dx / dist : 1;
+        const uy = dist > 0.001 ? dy / dist : 0;
+        tx = px + ux * aimedSkill.placeRange;
+        ty = py + uy * aimedSkill.placeRange;
+      }
+
+      const def = MINIONS.find((m) => m.id === aimedSkill.minionId);
+      const kolor = def?.color ?? this.cls.color;
+      const promien = (def ? minionEffectRadius(def) : 0) || def?.radius || 20;
+
+      this.aimPreview
+        .clear()
+        .lineStyle(2, kolor, 0.3)
+        .strokeCircle(px, py, aimedSkill.placeRange)
+        .fillStyle(kolor, 0.14)
+        .fillCircle(tx, ty, promien)
+        .lineStyle(2, kolor, 0.7)
+        .strokeCircle(tx, ty, promien)
+        // Krzyżyk w środku: przy promieniu 200 px sam okrąg nie mówi,
+        // gdzie dokładnie wyląduje pole.
+        .lineStyle(2, kolor, 0.9)
+        .lineBetween(tx - 10, ty, tx + 10, ty)
+        .lineBetween(tx, ty - 10, tx, ty + 10);
+    } else if (
+      // Podgląd zasięgu skilla — pokazuje się SAM, gdy skill jest gotowy.
+      // Przy quick caście to jedyna informacja o tym, gdzie trafi cios.
+      w.skillOf(me)?.kind === 'cone' && me.skillCooldowns[0] <= 0 &&
       !this.talentPanelOpen && w.phase !== 'break'
     ) {
+      const previewSkill = w.skillOf(me) as ConeSkill;
       const pointer = this.input.activePointer;
       const cursor = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
       const angle = Math.atan2(cursor.y - this.playerSprite.y, cursor.x - this.playerSprite.x);
@@ -1547,6 +1829,54 @@ export class GameScene extends Phaser.Scene {
     // Jednorazowe czeka na trafienie, czasowe po prostu tyka.
     const etykieta = me.chainBuffUses > 0 ? 'ARMED' : 'ACTIVE';
     return `   ** ${me.chainBuffName} ${etykieta} ${sekundy}s **`;
+  }
+
+  /**
+   * Poszarpany łuk błyskawicy od `x1,y1` do `x2,y2`. Rysowany DWA razy:
+   * gruba blada poświata pod spodem i cienki jasny rdzeń na wierzchu.
+   *
+   * Załamania są LOSOWE i zmieniają się co klatkę — dzięki temu błyskawica
+   * „trzeszczy". Losowość jest czysto wizualna (poza symulacją i lockstepem),
+   * więc `Math.random()` tu nie psuje determinizmu.
+   */
+  private drawLightning(x1: number, y1: number, x2: number, y2: number): void {
+    const g = this.lightningGfx;
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const len = Math.hypot(dx, dy);
+    // Świeżo odbity pocisk stoi w miejscu przez klatkę — pokaż wtedy iskrę.
+    if (len < 4) {
+      g.fillStyle(0xfff2a0, 0.9).fillCircle(x2, y2, 4);
+      return;
+    }
+    const segs = Math.max(2, Math.min(9, Math.floor(len / 22)));
+    const nx = -dy / len;
+    const ny = dx / len;
+    // Amplituda zygzaka rośnie z długością, ale ma sufit, żeby nie „eksplodował".
+    const amp = Math.min(16, len * 0.14);
+
+    const rysuj = (kolor: number, alpha: number, szer: number): void => {
+      g.lineStyle(szer, kolor, alpha);
+      g.beginPath();
+      g.moveTo(x1, y1);
+      for (let s = 1; s < segs; s++) {
+        const t = s / segs;
+        const off = (Math.random() * 2 - 1) * amp;
+        g.lineTo(x1 + dx * t + nx * off, y1 + dy * t + ny * off);
+      }
+      g.lineTo(x2, y2);
+      g.strokePath();
+    };
+    rysuj(0xfff2a0, 0.28, 6); // poświata
+    rysuj(0xffee44, 0.95, 2); // rdzeń
+    // Jasny punkt na czole błyskawicy.
+    g.fillStyle(0xffffff, 0.85).fillCircle(x2, y2, 3);
+  }
+
+  /** Czy umiejętność w slocie wymaga wskazania miejsca przed rzuceniem. */
+  private isAimedSkill(slot: number): boolean {
+    const def = this.world.skillOf(this.me, slot);
+    return def?.kind === 'summon' && def.aimed === true;
   }
 
   private updateHud(): void {
@@ -1628,7 +1958,13 @@ export class GameScene extends Phaser.Scene {
       w.timeStopTicks > 0
         ? `   ** TIME STOPPED ${(w.timeStopTicks * C.TICK_DT).toFixed(1)}s **`
         : '';
-    const akcje = (combo || skill) + this.chainBuffText(me) + blink + stop;
+    // Tryb celowania musi krzyczeć: gracz wcisnął klawisz i NIC się nie stało,
+    // więc bez tego wygląda to jak zepsuty skill.
+    const celowanie =
+      this.aimingSlot >= 0
+        ? `   >> PLACING ${w.skillOf(me, this.aimingSlot)?.name ?? ''} — LMB to cast, RMB to cancel <<`
+        : '';
+    const akcje = (combo || skill) + this.chainBuffText(me) + blink + stop + celowanie;
     const podpowiedz = combo ? 'Q/W/E: combos' : 'Q: slash';
 
     this.hud.setText(
