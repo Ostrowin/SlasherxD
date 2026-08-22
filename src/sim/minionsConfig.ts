@@ -74,6 +74,13 @@ export interface MinionDef {
   attackIntervalTicks: number;
   /** Obrażenia zadawane przez dotknięcie (jednostki walczące wręcz). */
   contactDamage: number;
+  /**
+   * Status nakładany wrogowi PRZY DOTKNIĘCIU (`STATUSES`). Pominięte = żaden.
+   * Rój szczurów roznosi tym `plague`: każde ugryzienie zaraża, więc miniony
+   * nabijają stacki pod detonację RUPTURE bez ani jednej dużej liczby obrażeń
+   * na sobie.
+   */
+  contactStatus?: string;
 
   /** Ile sztuk NA GRACZA może istnieć naraz — zawór bezpieczeństwa dla FPS. */
   maxActive: number;
@@ -143,6 +150,23 @@ export interface MinionDef {
    * buildera: to samo drzewko karmi cios gracza i jego działko.
    */
   scalesWithOwner?: boolean;
+
+  /**
+   * SPAWNER — jednostka, która co `attackIntervalTicks` WYPLUWA inną jednostkę
+   * w LOSOWYM punkcie w promieniu `radius` wokół siebie. Silnik WULKANU maga
+   * magmy: sam wulkan nic nie robi, tylko przez cały swój czas życia zrzuca
+   * meteory (`magma-meteor`) na losowe miejsca areny. Losowanie idzie
+   * z seedowanego RNG symulacji, więc każdy klient zrzuca je identycznie.
+   * Generyczne — dowolna „plująca" struktura to wpis w danych.
+   */
+  spews?: {
+    /** Którą jednostkę zrzucamy (`MINIONS`) — dla wulkanu `magma-meteor`. */
+    minionId: string;
+    /** Promień pola zrzutu wokół spawnera. */
+    radius: number;
+    /** Ile sztuk na jeden zrzut. */
+    count: number;
+  };
 }
 
 /**
@@ -212,9 +236,11 @@ export const MINIONS: MinionDef[] = [
     hp: 0,
     lifetimeTicks: -1,
     attacks: [
-      { kind: 'bolt', windupTicks: 0, projectileSpeed: 520, damage: 1, range: 460, recoverTicks: 0 },
+      // `damage` = mnożnik obrażeń zwarcia gracza (`scalesWithOwner`). 1.8 zamiast
+      // 1.0 — turret był za słaby, teraz każdy bolt to ~2× cios gracza.
+      { kind: 'bolt', windupTicks: 0, projectileSpeed: 560, damage: 1.8, range: 480, recoverTicks: 0 },
     ],
-    attackIntervalTicks: secs(0.3),
+    attackIntervalTicks: secs(0.25),
     contactDamage: 0,
     maxActive: 1,
     fixedCount: true,
@@ -682,7 +708,33 @@ export const MINIONS: MinionDef[] = [
     attacks: [],
     attackIntervalTicks: 0,
     contactDamage: 5,
-    maxActive: 24,
+    // Wysoki sufit, żeby talent R (`summonCount`) realnie zwiększał rój, a nie
+    // odbijał się od limitu.
+    maxActive: 40,
+    showHpBar: false,
+  },
+  {
+    /**
+     * SZCZUR Z ROJU — `E` SWARM (spec SWARM). Rój słabych, krótko żyjących
+     * szczurów polujących samodzielnie, które ROZNOSZĄ ZARAZĘ dotykiem
+     * (`contactStatus: 'plague'`). Sensem nie są obrażenia styku, tylko
+     * nabijanie stacków `plague` po całej hordzie pod detonację RUPTURE.
+     * Wysoki sufit `maxActive` pod talent `summonCount`.
+     */
+    id: 'rat-swarmling',
+    name: 'RAT',
+    color: 0xb6d94c,
+    shapeSides: 4,
+    radius: 8,
+    movement: 'hunt',
+    speed: 300,
+    hp: 0,
+    lifetimeTicks: secs(11),
+    attacks: [],
+    attackIntervalTicks: 0,
+    contactDamage: 3,
+    contactStatus: 'plague',
+    maxActive: 40,
     showHpBar: false,
   },
 
@@ -802,6 +854,165 @@ export const MINIONS: MinionDef[] = [
     // go postawił. Bazowy limit musi pomieścić to, co obiecuje umiejętność.
     maxActive: 4,
     showHpBar: false,
+  },
+
+  /* ── KRET SAPPER: kop + buduj (miny, wieżyczka, ładunek) ─────────────────
+   * Wszystko na istniejących wzorcach: mina = `chrono-trap` (pułapka
+   * z `triggerRadius` + `slam` + `charges`), wieżyczka = `totem-turret`.
+   */
+  {
+    /**
+     * MINA — kret SAPPER, `Q`. Leży, aż wróg wejdzie w `triggerRadius`, potem
+     * krótki zamach (tell) i wybuch z ogłuszeniem. `charges: 1` — jednorazowa,
+     * znika z hukiem. Spam buduje pole minowe, na które nagania się hordę.
+     */
+    id: 'mole-mine',
+    name: 'MINE',
+    color: 0x5d4037,
+    shapeSides: 3,
+    radius: 11,
+    movement: 'static',
+    speed: 0,
+    hp: 0,
+    lifetimeTicks: secs(30),
+    attacks: [
+      { kind: 'slam', windupTicks: secs(0.2), hitRadius: 150, damage: 26, knockback: 120, status: 'stun', recoverTicks: 0 },
+    ],
+    // Uzbrojenie po postawieniu — nie wybucha pod nogami stawiającego.
+    attackIntervalTicks: secs(0.6),
+    triggerRadius: 70,
+    charges: 1,
+    contactDamage: 0,
+    maxActive: 8,
+    showHpBar: false,
+  },
+  {
+    /**
+     * DRILL TURRET — kret SAPPER, `W`. Nieruchome działko strzelające do
+     * najbliższego wroga (klon wzorca `totem-turret`). Płaskie obrażenia ×
+     * `minionDamageMult`, więc drzewko sapera (minionDamage/count) je pompuje.
+     */
+    id: 'drill-turret',
+    name: 'DRILL',
+    color: 0x8a6d5a,
+    shapeSides: 6,
+    radius: 16,
+    movement: 'static',
+    speed: 0,
+    hp: 0,
+    lifetimeTicks: secs(14),
+    attacks: [
+      { kind: 'bolt', windupTicks: 0, projectileSpeed: 620, damage: 7, range: 420, recoverTicks: 0 },
+    ],
+    attackIntervalTicks: secs(0.4),
+    contactDamage: 0,
+    maxActive: 3,
+    showHpBar: false,
+  },
+  {
+    /**
+     * DEMOLITION CHARGE — kret SAPPER, `E`. Wielki ładunek: DŁUGI zamach (tell
+     * 1 s = wrogowie mają czas wejść, Ty czas ich naganiać), ogromny promień
+     * i mocne ogłuszenie. Jednorazowy (`charges: 1`). To „duży guzik" sapera —
+     * postaw, ściągnij hordę, patrz jak znika.
+     */
+    id: 'demolition-charge',
+    name: 'CHARGE',
+    color: 0xd0662a,
+    shapeSides: 3,
+    radius: 14,
+    movement: 'static',
+    speed: 0,
+    hp: 0,
+    lifetimeTicks: secs(20),
+    attacks: [
+      { kind: 'slam', windupTicks: secs(1), hitRadius: 280, damage: 70, knockback: 160, status: 'stun', recoverTicks: 0 },
+    ],
+    attackIntervalTicks: secs(0.6),
+    triggerRadius: 120,
+    charges: 1,
+    contactDamage: 0,
+    maxActive: 2,
+    showHpBar: false,
+  },
+
+  /* ── KRET MAGMA: mag ognia + WULKAN ──────────────────────────────────────
+   * Lawa = `quake-field` z `burn`; meteor = `slam`+`burn`+`charges:1`; wulkan
+   * = spawner (`spews`), który przez cały czas życia zrzuca meteory losowo.
+   */
+  {
+    /**
+     * LAVA POOL — kret MAGMA, `W`. Kałuża lawy postawiona w punkcie: cyklicznie
+     * podpala i rani wszystko, co w niej stoi (klon `quake-field` + `burn`).
+     * Zero odrzutu — ma zmuszać hordę do przejścia przez ogień, nie rozganiać.
+     */
+    id: 'lava-pool',
+    name: 'LAVA',
+    color: 0xff6b1a,
+    shapeSides: 4,
+    radius: 22,
+    movement: 'static',
+    speed: 0,
+    hp: 0,
+    lifetimeTicks: secs(6),
+    attacks: [
+      { kind: 'slam', windupTicks: 0, hitRadius: 150, damage: 5, knockback: 0, status: 'burn', recoverTicks: 0 },
+    ],
+    attackIntervalTicks: secs(0.5),
+    contactDamage: 0,
+    maxActive: 3,
+    showHpBar: false,
+  },
+  {
+    /**
+     * METEOR — pocisk WULKANU (`R` maga magmy). Statyczny „znacznik" spadający
+     * w losowy punkt: `windupTicks` to TELEGRAF (render powiększa jednostkę
+     * w zamachu — masz czas odejść), po nim wybuch z `burn` i `charges: 1`
+     * kasuje go razem z hukiem. Nie stawiany ręcznie — wypluwa go `volcano`.
+     */
+    id: 'magma-meteor',
+    name: 'METEOR',
+    color: 0xff4500,
+    shapeSides: 3,
+    radius: 10,
+    movement: 'static',
+    speed: 0,
+    hp: 0,
+    lifetimeTicks: secs(1.6),
+    attacks: [
+      { kind: 'slam', windupTicks: secs(0.7), hitRadius: 100, damage: 14, knockback: 30, status: 'burn', recoverTicks: 0 },
+    ],
+    // 0 — zamach rusza od razu po zrzucie; całe opóźnienie siedzi w `windupTicks`.
+    attackIntervalTicks: 0,
+    charges: 1,
+    contactDamage: 0,
+    maxActive: 40,
+    showHpBar: false,
+  },
+  {
+    /**
+     * VOLCANO — kret MAGMA, `R`. Popieprzony ultimate: postawiona struktura,
+     * która przez cały swój czas życia (~45 s) co ~1,1 s ZRZUCA meteor
+     * (`spews`) na losowe miejsce w wielkim promieniu. Sam nie atakuje — to
+     * fabryka opadu ogniowego, która na minutę zamienia arenę w strzelnicę
+     * i zmusza całą drużynę do ciągłego ruchu. `minionDuration` przedłuża opad.
+     */
+    id: 'volcano',
+    name: 'VOLCANO',
+    color: 0xb5321a,
+    shapeSides: 3,
+    radius: 30,
+    movement: 'static',
+    speed: 0,
+    hp: 0,
+    lifetimeTicks: secs(45),
+    attacks: [],
+    // Interwał zrzutu meteorów (spawnMinion ustawia z tego pierwszy odstęp).
+    attackIntervalTicks: secs(1.1),
+    spews: { minionId: 'magma-meteor', radius: 720, count: 1 },
+    contactDamage: 0,
+    maxActive: 1,
+    showHpBar: true,
   },
 ];
 

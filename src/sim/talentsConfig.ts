@@ -172,6 +172,43 @@ export interface TalentDef {
    * drugiego turreta — ten sam jeden zaczyna czyścić hordę.
    */
   grantsTurretChains?: number;
+  /**
+   * Ile NADWYŻKI prędkości Sonic zamienia w obrażenia (`Player.speedToDamage`).
+   * Specjalizacja SONIC włącza to, a jej zwieńczenie (`LIGHT SPEED`) podbija.
+   */
+  grantsSpeedDamage?: number;
+  /**
+   * Ile NADWYŻKI życia tank CURL zamienia w obrażenia (`Player.hpToDamage`).
+   * Specjalizacja CURL włącza to, a jej zwieńczenie (`UNBREAKABLE`) podbija.
+   */
+  grantsHpDamage?: number;
+  /**
+   * Ile BRAKUJĄCEGO życia berserker RAMPAGE zamienia w obrażenia
+   * (`Player.lostHpToDamage`) — odwrotność CURL-a. Specjalizacja RAMPAGE włącza
+   * to, a jej zwieńczenie (`LAST STAND`) podbija.
+   */
+  grantsLostHpDamage?: number;
+  /**
+   * Siła egzekucji hieny CACKLE (`Player.executeToDamage`) — bonus do obrażeń
+   * rosnący z brakiem HP CELU. Specjalizacja CACKLE włącza to, a jej
+   * zwieńczenie (`NO SURVIVORS`) podbija.
+   */
+  grantsExecuteDamage?: number;
+  /**
+   * `onHit` (SCURRY): status nakładany każdym auto-atakiem (`Player.onHitStatus`)
+   * — dla szczura `venom`. Włącza go wybór specjalizacji SCURRY.
+   */
+  grantsOnHitStatus?: string;
+  /**
+   * `onHit` (SCURRY): ile HP leczy każdy trafiony auto-atak
+   * (`Player.onHitLifesteal`). Specjalizacja włącza, apex (`RABID BLOOD`) podbija.
+   */
+  grantsOnHitLifesteal?: number;
+  /**
+   * AURA MASTER (zając): aury sprzężone ze slotami Q/W/E/R (`Player.slotAuras`),
+   * po jednej na slot. Aktywne, dopóki slot gotowy — gasną na czas cooldownu.
+   */
+  grantsSlotAuras?: string[];
 }
 
 export interface TalentTier {
@@ -230,6 +267,8 @@ const PASSIVE_LABEL: Partial<Record<ItemKind, { label: string; unit: string }>> 
   projectileCount: { label: 'PROJECTILES', unit: '' },
   chainCount: { label: 'CHAIN bounces', unit: '' },
   chainDamage: { label: 'CHAIN damage', unit: '%' },
+  drainTargets: { label: 'DRAIN targets', unit: '' },
+  summonCount: { label: 'SWARM size', unit: '' },
 };
 
 /**
@@ -288,7 +327,9 @@ function spec(
     skills?: string[]; dash?: string; aura?: string;
     combos?: string[]; clearSkills?: boolean;
     ricochet?: { chains: number; range: number; falloff: number; damageMult: number; visual?: string };
-    pack?: boolean;
+    pack?: boolean; speedDamage?: number; hpDamage?: number; lostHpDamage?: number;
+    executeDamage?: number; onHitStatus?: string; onHitLifesteal?: number;
+    slotAuras?: string[];
   },
 ): TalentDef {
   const l = PASSIVE_LABEL[kind];
@@ -298,6 +339,10 @@ function spec(
     grantsSkills: grants?.skills, grantsDash: grants?.dash, grantsAura: grants?.aura,
     grantsCombos: grants?.combos, clearsSkills: grants?.clearSkills,
     grantsRicochet: grants?.ricochet, grantsPack: grants?.pack,
+    grantsSpeedDamage: grants?.speedDamage, grantsHpDamage: grants?.hpDamage,
+    grantsLostHpDamage: grants?.lostHpDamage, grantsExecuteDamage: grants?.executeDamage,
+    grantsOnHitStatus: grants?.onHitStatus, grantsOnHitLifesteal: grants?.onHitLifesteal,
+    grantsSlotAuras: grants?.slotAuras,
     desc: extraDesc ? `${extraDesc} · ${bonus}` : `SPECIALIZE · ${bonus}`,
   };
 }
@@ -1116,38 +1161,43 @@ const GORILLA_IRONGRIP: TalentBranch = {
  *   R  BAT SWARM    rój nietoperzy polujących samodzielnie
  *
  * Cała gałąź to ryzyko/nagroda: kanał leczy tylko, gdy STOISZ w tłumie, a każdy
- * ruch go przerywa. Drzewko stoi na `leech` i `attackSpeed` (sustain), z zapasem
- * `maxHp`, bo bat jest z papieru. Zwieńczenie podnosi lifesteal NIGHTMARE do
- * PEŁNI zadanych obrażeń — od tego momentu stanie w hordzie leczy do pełna.
+ * ruch go przerywa. Drzewko NIE daje surowego dmg ani HP-na-zabójstwo — zamiast
+ * tego ULEPSZA SAME SKILLE: `Q` sączy z WIELU celów (`drainTargets`), `W`
+ * poszerza pierścień (`range`), `R` stawia WIĘCEJ nietoperzy (`summonCount`).
+ * Do tego cooldown i odrobina HP, bo bat jest z papieru. Zwieńczenie podnosi
+ * lifesteal NIGHTMARE do PEŁNI zadanych obrażeń i jeszcze go poszerza.
  */
 const BAT_NIGHTTERROR: TalentBranch = {
   id: 'bat-terror',
   name: 'NIGHT TERROR',
   tiers: [
     specTier(
-      spec('bat-terror', 'NIGHT TERROR', 'leech', 1,
+      spec('bat-terror', 'NIGHT TERROR', 'maxHp', 30,
         'Q siphon · W nightmare (AoE drain+fear) · E frenzy · R bat swarm',
         { skills: ['bat-drain', 'bat-nightmare', 'bat-frenzy', 'bat-swarm'] }),
     ),
     {
       requiresInBranch: 0,
       talents: [
-        passive('bat-terror-as', 'Frenzied Wings', 'attackSpeed', rankValue('attackSpeed'), 5),
-        passive('bat-terror-leech', 'Bloodthirst', 'leech', rankValue('leech'), 5),
+        // `Q` sączy z KILKU celów naraz — filar gałęzi (więcej celów = więcej leczenia).
+        passive('bat-terror-drain', 'Manifold Drain', 'drainTargets', 1, 3, 'extra DRAIN targets'),
+        passive('bat-terror-cd', 'Restless', 'cooldown', rankValue('cooldown'), 5),
       ],
     },
     {
       requiresInBranch: 5,
       talents: [
+        // `range` poszerza pierścień NIGHTMARE (i promień sączenia Q).
+        passive('bat-terror-range', 'Echoing Dread', 'range', 6, 5, 'NIGHTMARE radius'),
         passive('bat-terror-hp', 'Dark Vitality', 'maxHp', rankValue('maxHp') * 1.6, 3),
-        passive('bat-terror-str', 'Sharp Fangs', 'strength', rankValue('strength') * 1.6, 3),
       ],
     },
     {
       requiresInBranch: 10,
       talents: [
-        passive('bat-terror-leech2', 'Sanguine', 'leech', rankValue('leech') * 2, 3),
-        passive('bat-terror-cd', 'Restless', 'cooldown', rankValue('cooldown') * 2, 3),
+        // `R` stawia więcej nietoperzy na jeden rzut.
+        passive('bat-terror-swarm', 'Swelling Swarm', 'summonCount', 1, 4, 'SWARM bats'),
+        passive('bat-terror-cd2', 'Frantic', 'cooldown', rankValue('cooldown') * 2, 3),
       ],
     },
     {
@@ -1155,15 +1205,14 @@ const BAT_NIGHTTERROR: TalentBranch = {
       talents: [
         {
           /**
-           * Zwieńczenie: NIGHTMARE leczy z PEŁNI zadanych obrażeń (a nie połowy),
-           * więc stanie w gęstej hordzie odbija bata do pełna. To zamienia
-           * krewnego z papieru w nieśmiertelnego-dopóki-sączy.
+           * Zwieńczenie: NIGHTMARE leczy z PEŁNI zadanych obrażeń (a nie połowy)
+           * i jest jeszcze szerszy — stanie w gęstej hordzie odbija bata do pełna.
            */
           id: 'bat-terror-apex',
           name: 'BLOOD MOON',
-          desc: 'NIGHTMARE heals for ALL damage it deals · +leech',
-          kind: 'leech',
-          valuePerRank: rankValue('leech') * 3,
+          desc: 'NIGHTMARE heals for ALL damage it deals · wider ring',
+          kind: 'range',
+          valuePerRank: 10,
           maxRank: 2,
           grantsSkills: ['', 'bat-nightmare-blood'],
         },
@@ -1193,7 +1242,7 @@ const HEDGEHOG_BASTION: TalentBranch = {
   name: 'BASTION',
   tiers: [
     specTier(
-      spec('hog-bastion', 'BASTION', 'attackSpeed', 15,
+      spec('hog-bastion', 'BASTION', 'attackSpeed', 25,
         'Q sentry (moves, scales with YOU) · W spike wall · E overclock · R lockdown',
         { skills: ['deploy-sentry', 'spike-wall', 'overclock', 'lockdown'] }),
     ),
@@ -1201,22 +1250,22 @@ const HEDGEHOG_BASTION: TalentBranch = {
       requiresInBranch: 0,
       talents: [
         // Atak speed i kryt LECĄ WPROST W TURRET (`scalesWithOwner`) — to filary
-        // DPS działka, nie wypełniacze.
-        passive('hog-bas-as', 'Rapid Fire', 'attackSpeed', rankValue('attackSpeed'), 5),
-        passive('hog-bas-crit', 'Calibrated', 'critChance', rankValue('critChance'), 5),
+        // DPS działka, więc bite mocniej niż zwykłe wypełniacze.
+        passive('hog-bas-as', 'Rapid Fire', 'attackSpeed', rankValue('attackSpeed') * 1.5, 5),
+        passive('hog-bas-crit', 'Calibrated', 'critChance', rankValue('critChance') * 1.4, 5),
       ],
     },
     {
       requiresInBranch: 5,
       talents: [
-        passive('hog-bas-str', 'Heavy Rounds', 'strength', rankValue('strength') * 1.6, 3),
+        passive('hog-bas-str', 'Heavy Rounds', 'strength', rankValue('strength') * 2.2, 3),
         passive('hog-bas-hp', 'Reinforced Plate', 'maxHp', rankValue('maxHp') * 1.6, 3),
       ],
     },
     {
       requiresInBranch: 10,
       talents: [
-        passive('hog-bas-critd', 'Armor Piercing', 'critDamage', rankValue('critDamage') * 2, 3),
+        passive('hog-bas-critd', 'Armor Piercing', 'critDamage', rankValue('critDamage') * 2.6, 3),
         passive('hog-bas-cd', 'Field Kit', 'cooldown', rankValue('cooldown') * 2, 3),
       ],
     },
@@ -1243,22 +1292,818 @@ const HEDGEHOG_BASTION: TalentBranch = {
 };
 
 /**
+ * JEŻ — SONIC. DPS, w którym PRĘDKOŚĆ jest obrażeniami. Zamiast stać, stajesz
+ * się rozmazaną kulą kolców — a stat `speed` (normalnie defensywny) staje się
+ * głównym źródłem DPS (`speedToDamage`).
+ *
+ *   Q  SPIN DASH    roll orzący hordę; dmg rośnie z prędkością (`ride`-dash)
+ *   W  SPIN ATTACK  nova 360° wokół gracza, też skalowana prędkością
+ *   E  MOMENTUM     aura prędkości — jednocześnie mobilność i obrażenia
+ *   R  SONIC BOOM   ultymatywny, nietykalny roll przez całą arenę
+ *
+ * Jeden hook w silniku (`meleeDamageOf`) sprawia, że KAŻDE źródło obrażeń —
+ * roll, spin, auto-atak — skaluje się prędkością. Prędkość (spec + zwieńczenie)
+ * jest tożsamością, ale drzewko podnosi też WPROST MOC SKILLI: obrażenia
+ * (`strength`), kryt (`critChance`/`critDamage`) i ZASIĘG AoE (`range` poszerza
+ * promień rolla i spina). Zwieńczenie (`LIGHT SPEED`) mocniej przelewa prędkość
+ * w obrażenia.
+ */
+const HEDGEHOG_SONIC: TalentBranch = {
+  id: 'hog-sonic',
+  name: 'SONIC',
+  tiers: [
+    specTier(
+      spec('hog-sonic', 'SONIC', 'speed', 20,
+        'SPEED becomes damage · Q roll · W spin · E momentum · R boom',
+        {
+          skills: ['sonic-spin-dash', 'sonic-spin-attack', 'sonic-momentum', 'sonic-boom'],
+          speedDamage: 1.2,
+        }),
+    ),
+    {
+      requiresInBranch: 0,
+      talents: [
+        // WPROST w moc skilli: obrażenia i prędkość (ta i tak wchodzi w dmg).
+        passive('hog-son-str', 'Savage Momentum', 'strength', rankValue('strength') * 1.5, 5),
+        passive('hog-son-spd', 'Acceleration', 'speed', rankValue('speed'), 5),
+      ],
+    },
+    {
+      requiresInBranch: 5,
+      talents: [
+        passive('hog-son-crit', 'Sharp Edges', 'critChance', rankValue('critChance') * 1.4, 5),
+        // `range` poszerza AoE rolla (hitRadius) i spina (stożek).
+        passive('hog-son-range', 'Wide Arc', 'range', 6, 3, 'roll & spin AoE'),
+      ],
+    },
+    {
+      requiresInBranch: 10,
+      talents: [
+        passive('hog-son-str2', 'Overrun', 'strength', rankValue('strength') * 2.2, 3),
+        passive('hog-son-critd', 'Deep Cuts', 'critDamage', rankValue('critDamage') * 2, 3),
+      ],
+    },
+    {
+      requiresInBranch: 15,
+      talents: [
+        {
+          /**
+           * Zwieńczenie: prędkość przelewa się w obrażenia znacznie mocniej
+           * (`speedToDamage` 1.2 → 2.2). Od tego momentu każdy punkt prędkości
+           * to prawie dwa razy tyle obrażeń — Sonic w pełnym pędzie miażdży.
+           */
+          id: 'hog-son-apex',
+          name: 'LIGHT SPEED',
+          desc: 'speed converts to damage far harder · +speed',
+          kind: 'speed',
+          valuePerRank: rankValue('speed') * 3,
+          maxRank: 2,
+          grantsSpeedDamage: 2.2,
+        },
+      ],
+    },
+  ],
+};
+
+/**
+ * JEŻ — CURL. Tank, który NAPRAWDĘ bije: „touch me and regret it" jako
+ * mechanika. Jego oś to HP — i przez `hpToDamage` to samo życie, które go trzyma
+ * przy życiu, karmi jego cios.
+ *
+ *   Q  SPIKE NOVA     wachlarz kolców 360° wokół gracza (peel + dmg z HP)
+ *   W  IRON CURL      aura: pancerz + kolce raniące wszystko blisko
+ *   E  PROVOKE        ściągasz hordę na siebie i przyciągasz ją (`taunt`)
+ *   R  TECTONIC SLAM  wielki frontalny cios ×10, rosnący razem z twoim HP
+ *
+ * Pętla tanka: PROVOKE zwołuje, IRON CURL przetrzymuje i mieli, TECTONIC SLAM
+ * miażdży. Drzewko pompuje `maxHp` (fundament — daje i wytrzymałość, i dmg),
+ * `armor` oraz `thorns`. Zwieńczenie (`UNBREAKABLE`) mocniej przelewa HP w cios.
+ */
+const HEDGEHOG_CURL: TalentBranch = {
+  id: 'hog-curl',
+  name: 'CURL',
+  tiers: [
+    specTier(
+      spec('hog-curl', 'CURL', 'maxHp', 40,
+        'HP becomes damage · Q nova · W iron curl · E provoke · R TECTONIC SLAM',
+        {
+          skills: ['curl-nova', 'iron-curl', 'curl-provoke', 'tectonic-slam'],
+          hpDamage: 0.6,
+        }),
+    ),
+    {
+      requiresInBranch: 0,
+      talents: [
+        // maxHp to fundament: karmi JEDNOCZEŚNIE wytrzymałość i obrażenia
+        // (`hpToDamage`), więc to najważniejszy filar gałęzi.
+        passive('hog-curl-hp', 'Thick Quills', 'maxHp', rankValue('maxHp'), 5),
+        passive('hog-curl-arm', 'Hardened', 'armor', rankValue('armor'), 5),
+      ],
+    },
+    {
+      requiresInBranch: 5,
+      talents: [
+        passive('hog-curl-hp2', 'Bulk', 'maxHp', rankValue('maxHp') * 1.6, 3),
+        passive('hog-curl-thorn', 'Barbed', 'thorns', rankValue('thorns') * 1.6, 3),
+      ],
+    },
+    {
+      requiresInBranch: 10,
+      talents: [
+        passive('hog-curl-hp3', 'Colossal', 'maxHp', rankValue('maxHp') * 2, 3),
+        passive('hog-curl-str', 'Crushing Weight', 'strength', rankValue('strength') * 2, 3),
+      ],
+    },
+    {
+      requiresInBranch: 15,
+      talents: [
+        {
+          /**
+           * Zwieńczenie: życie przelewa się w obrażenia dużo mocniej
+           * (`hpToDamage` 0.6 → 1.4). Od tego momentu każdy nabity punkt HP to
+           * niemal tyle samo obrażeń — tank staje się murem, który zabija.
+           */
+          id: 'hog-curl-apex',
+          name: 'UNBREAKABLE',
+          desc: 'your HP converts to damage far harder · +max HP',
+          kind: 'maxHp',
+          valuePerRank: rankValue('maxHp') * 3,
+          maxRank: 2,
+          grantsHpDamage: 1.4,
+        },
+      ],
+    },
+  ],
+};
+
+/**
+ * NIETOPERZ — SONAR. Echolokacyjny kaster kontroli: zamiast sączyć życie
+ * (NIGHT TERROR), TNIE hordę dźwiękiem z dystansu i nią steruje.
+ *
+ *   Q  SONIC WAVE      fala, która ODBIJA się (echo) po wrogach
+ *   W  SCREECH         stożek dźwięku, rani i przeraża
+ *   E  SHRIEK          aura osłabiająca — cała drużyna bije mocniej w wroga
+ *   R  DEAFENING SCREAM pisk 360°: wielki dmg + fear, rozbija otoczenie
+ *
+ * Drzewko stoi na ECHACH: `chainCount` (ile razy fala odbija) i `projectileCount`
+ * (ile fal naraz) zamieniają jeden pisk w kaskadę po całej hordzie — ten sam
+ * silnik, na którym stoi ARCANE ARCHER lisa, tylko motyw to dźwięk.
+ */
+const BAT_SONAR: TalentBranch = {
+  id: 'bat-sonar',
+  name: 'SONAR',
+  tiers: [
+    specTier(
+      spec('bat-sonar', 'SONAR', 'range', 15,
+        'Q sonic wave (echoes) · W screech (fear) · E shriek (weaken) · R deafening scream',
+        { skills: ['sonic-wave', 'screech', 'shriek', 'deafening-scream'] }),
+    ),
+    {
+      requiresInBranch: 0,
+      talents: [
+        // Echo (`chainCount`) to najmocniejszy filar — każde odbicie to kolejny
+        // trafiony wróg z jednej fali.
+        passive('bat-son-echo', 'Echolocation', 'chainCount', 1, 5),
+        passive('bat-son-str', 'Piercing Cry', 'strength', rankValue('strength'), 5),
+      ],
+    },
+    {
+      requiresInBranch: 5,
+      talents: [
+        passive('bat-son-wave', 'Wider Cry', 'projectileCount', 1, 2),
+        passive('bat-son-crit', 'Sharp Frequency', 'critChance', rankValue('critChance'), 3),
+      ],
+    },
+    {
+      requiresInBranch: 10,
+      talents: [
+        passive('bat-son-echo2', 'Reverb', 'chainCount', 2, 3),
+        passive('bat-son-cd', 'Rapid Pulse', 'cooldown', rankValue('cooldown') * 2, 3),
+      ],
+    },
+    {
+      requiresInBranch: 15,
+      // Zwieńczenie w ECHA — dopiero długi łańcuch odbić robi z jednej fali
+      // czyściciela hordy (jak Storm of Arrows lisa).
+      talents: [passive('bat-son-apex', 'Echo Chamber', 'chainCount', 3, 2)],
+    },
+  ],
+};
+
+/**
+ * NIEDŹWIEDŹ — RAMPAGE. Berserker: „big, angry" jako mechanika. Przez
+ * `lostHpToDamage` to samo BRAKUJĄCE życie, które zbliża Cię do śmierci, karmi
+ * Twój cios — odwrotność tanka CURL-a.
+ *
+ *   Q  MAUL       szeroki zamach łapą (rdzeń dmg)
+ *   W  BLOODLUST  aura: leczenie + prędkość ataku — sustain do grania nisko
+ *   E  RAVAGE     szarża w hordę z uderzeniem (wejście)
+ *   R  CATACLYSM  grzmot 360° ×7 — przy niskim HP staje się rzezią
+ *
+ * Rytm gałęzi: wejdź, zejdź nisko (najmocniej bijesz), a `leech` i BLOODLUST
+ * trzymają Cię tuż nad zerem. Wyleczenie do pełna zdejmuje premię, więc gałąź
+ * sama reguluje ryzyko. Drzewko stoi na `leech` (sustain) i `strength`.
+ */
+const BEAR_RAMPAGE: TalentBranch = {
+  id: 'bear-rampage',
+  name: 'RAMPAGE',
+  tiers: [
+    specTier(
+      spec('bear-rampage', 'RAMPAGE', 'strength', 20,
+        'MISSING HP becomes damage · Q maul · W bloodlust · E ravage · R cataclysm',
+        {
+          skills: ['maul', 'bloodlust', 'ravage', 'cataclysm'],
+          lostHpDamage: 1.4,
+        }),
+    ),
+    {
+      requiresInBranch: 0,
+      talents: [
+        // Leech to sustain, który POZWALA grać nisko — filar tak samo ważny jak
+        // obrażenia, bo bez niego berserker po prostu ginie na swoim pasku.
+        passive('bear-ram-leech', 'Bloodthirst', 'leech', rankValue('leech'), 5),
+        passive('bear-ram-str', 'Savagery', 'strength', rankValue('strength'), 5),
+      ],
+    },
+    {
+      requiresInBranch: 5,
+      talents: [
+        passive('bear-ram-critd', 'Brutal Blows', 'critDamage', rankValue('critDamage') * 1.6, 3),
+        passive('bear-ram-as', 'Bloodrush', 'attackSpeed', rankValue('attackSpeed'), 3),
+      ],
+    },
+    {
+      requiresInBranch: 10,
+      talents: [
+        passive('bear-ram-str2', 'Unbound Fury', 'strength', rankValue('strength') * 2, 3),
+        passive('bear-ram-leech2', 'Feast', 'leech', rankValue('leech') * 2, 3),
+      ],
+    },
+    {
+      requiresInBranch: 15,
+      talents: [
+        {
+          /**
+           * Zwieńczenie: brakujące życie przelewa się w obrażenia dużo mocniej
+           * (`lostHpToDamage` 1.4 → 2.4). Na ostatnim pasku niedźwiedź bije jak
+           * czołg — nagroda za trzymanie się krawędzi do końca.
+           */
+          id: 'bear-ram-apex',
+          name: 'LAST STAND',
+          desc: 'missing HP converts to damage far harder · +strength',
+          kind: 'strength',
+          valuePerRank: rankValue('strength') * 3,
+          maxRank: 2,
+          grantsLostHpDamage: 2.4,
+        },
+      ],
+    },
+  ],
+};
+
+/**
+ * HIENA — CACKLE. Egzekutor: „laughs at the wounded" jako mechanika. Przez
+ * `executeToDamage` im bardziej ranny CEL, tym mocniej go bijesz — hiena dobija
+ * słabych i żywi się padliną.
+ *
+ *   Q  RAVENOUS BITE  szybki kęs (rdzeń dmg, dobija rannych)
+ *   W  POUNCE         skok na ofiarę z uderzeniem (dopadasz uciekających)
+ *   E  CACKLE         rechot 360°: rani i OSŁABIA (weaken) — miękcza pod egzekucję
+ *   R  FEEDING FRENZY +prędkość ataku: rzuć się na poranioną hordę i wyjdź pełny
+ *
+ * Rytm: zmiękcz (E weaken), dobij (bonus z execute), pożyw się (leech). Osłabiony
+ * ranny wróg znika od jednego kęsa. Drzewko stoi na `strength` i `leech`.
+ */
+const HYENA_CACKLE: TalentBranch = {
+  id: 'hy-cackle',
+  name: 'CACKLE',
+  tiers: [
+    specTier(
+      spec('hy-cackle', 'CACKLE', 'strength', 20,
+        'WOUNDED enemies take extra · Q bite · W pounce · E cackle · R feeding frenzy',
+        {
+          skills: ['ravenous-bite', 'cackle-pounce', 'cackle', 'feeding-frenzy'],
+          executeDamage: 1.5,
+        }),
+    ),
+    {
+      requiresInBranch: 0,
+      talents: [
+        // Leech (żerowanie) to sustain hieny — dobite wrogi leczą, więc to filar
+        // tak samo ważny jak siła.
+        passive('hy-cak-leech', 'Scavenger', 'leech', rankValue('leech'), 5),
+        passive('hy-cak-str', 'Bloodied Fangs', 'strength', rankValue('strength'), 5),
+      ],
+    },
+    {
+      requiresInBranch: 5,
+      talents: [
+        passive('hy-cak-crit', 'Killer Instinct', 'critChance', rankValue('critChance'), 3),
+        passive('hy-cak-as', 'Frenzied', 'attackSpeed', rankValue('attackSpeed'), 3),
+      ],
+    },
+    {
+      requiresInBranch: 10,
+      talents: [
+        passive('hy-cak-critd', 'Rip and Tear', 'critDamage', rankValue('critDamage') * 2, 3),
+        passive('hy-cak-str2', 'Savage', 'strength', rankValue('strength') * 2, 3),
+      ],
+    },
+    {
+      requiresInBranch: 15,
+      talents: [
+        {
+          /**
+           * Zwieńczenie: egzekucja przelewa się dużo mocniej (`executeToDamage`
+           * 1.5 → 3). Każdy poraniony wróg znika od dotknięcia — hiena zamiata
+           * osłabioną hordę do zera.
+           */
+          id: 'hy-cak-apex',
+          name: 'NO SURVIVORS',
+          desc: 'wounded enemies take FAR more damage · +strength',
+          kind: 'strength',
+          valuePerRank: rankValue('strength') * 3,
+          maxRank: 2,
+          grantsExecuteDamage: 3,
+        },
+      ],
+    },
+  ],
+};
+
+/**
+ * SZCZUR — SWARM. Dowódca zarazy: „set up the board, then detonate". Nie bije
+ * z ręki — INFEKUJE hordę i DETONUJE ją jednym guzikiem. Gra z dystansu,
+ * cierpliwie hoduje stacki `plague`, po czym kasuje całą falę.
+ *
+ *   Q  INFEST    natrysk zarazy (skacze dalej sam)
+ *   W  RUPTURE   detonacja: burst ∝ stackom zarazy, potem zaraza znika
+ *   E  SWARM     rój szczurów roznoszący zarazę dotykiem
+ *   R  OUTBREAK  ognisko na całą arenę — natychmiastowy setup pod RUPTURE
+ *
+ * Drzewko stoi na `strength` (skaluje RUPTURE — burst = obrażenia zwarcia ×
+ * stacki), `summonCount` (grubszy rój = więcej roznosicieli) i `cooldown`
+ * (częstsze detonacje), z zapasem `maxHp`, bo dowódca jest kruchy. Zwieńczenie
+ * mnoży rój — a więc i stacki pod detonację.
+ */
+const RAT_SWARM: TalentBranch = {
+  id: 'rat-swarm',
+  name: 'SWARM',
+  tiers: [
+    specTier(
+      spec('rat-swarm', 'SWARM', 'strength', 20,
+        'INFECT then DETONATE · Q infest · W RUPTURE · E swarm · R outbreak',
+        { skills: ['rat-infest', 'rat-rupture', 'rat-vermin-swarm', 'rat-outbreak'] }),
+    ),
+    {
+      requiresInBranch: 0,
+      talents: [
+        // strength karmi RUPTURE (burst = obrażenia zwarcia × stacki) — filar dmg.
+        passive('rat-sw-str', 'Virulence', 'strength', rankValue('strength'), 5),
+        passive('rat-sw-swarm', 'Teeming', 'summonCount', 1, 4, 'SWARM rats'),
+      ],
+    },
+    {
+      requiresInBranch: 5,
+      talents: [
+        passive('rat-sw-cd', 'Feverish', 'cooldown', rankValue('cooldown'), 3),
+        passive('rat-sw-hp', 'Filth-Hardened', 'maxHp', rankValue('maxHp') * 1.6, 3),
+      ],
+    },
+    {
+      requiresInBranch: 10,
+      talents: [
+        passive('rat-sw-str2', 'Pandemic', 'strength', rankValue('strength') * 2, 3),
+        passive('rat-sw-cd2', 'Contagious', 'cooldown', rankValue('cooldown') * 2, 3),
+      ],
+    },
+    {
+      requiresInBranch: 15,
+      // Zwieńczenie w rój: więcej roznosicieli = więcej stacków = większe RUPTURE.
+      talents: [passive('rat-sw-apex', 'Plague Tide', 'summonCount', 2, 2, 'SWARM rats')],
+    },
+  ],
+};
+
+/**
+ * SZCZUR — SCURRY. Truciciel hit-and-run: „never stop moving". Nie stawia nic
+ * i nie detonuje — KAŻDY auto-atak truje, spowalnia i leczy (`onHit`), a Ty
+ * bez przerwy przemykasz między celami. Śmierć od tysiąca ukąszeń.
+ *
+ *   onHit  każdy cios: `venom` (jad + spowolnienie) + lifesteal-na-trafienie
+ *   Q  SCAMPER      krótki, częsty doskok przez wrogów
+ *   W  GNAW FRENZY  +attack-speed: zalewa cel jadem i odbija Cię na życiu
+ *   E  VENOM SPRAY  natrysk jadu grupie, gdy Cię otoczą
+ *   R  RABID        wielki attack-speed: lawina jadu i lifesteala
+ *
+ * Rytm: nie stój. Doskok-atak-doskok, trzymaj wysoki atak, jad tyka, a
+ * lifesteal trzyma Cię przy życiu. Drzewko stoi na `attackSpeed` (więcej ciosów
+ * = więcej jadu I leczenia) i `speed`, z `leech` i `critChance`. Zwieńczenie
+ * mocno podbija lifesteal-na-trafienie.
+ */
+const RAT_SCURRY: TalentBranch = {
+  id: 'rat-scurry',
+  name: 'SCURRY',
+  tiers: [
+    specTier(
+      spec('rat-scurry', 'SCURRY', 'attackSpeed', 25,
+        'every hit POISONS + heals · Q scamper · W frenzy · E spray · R RABID',
+        {
+          skills: ['scurry-scamper', 'scurry-frenzy', 'scurry-venom-spray', 'scurry-rabid'],
+          onHitStatus: 'venom',
+          onHitLifesteal: 0.6,
+        }),
+    ),
+    {
+      requiresInBranch: 0,
+      talents: [
+        // attackSpeed to filar: każdy cios to stack jadu i porcja lifesteala.
+        passive('rat-sc-as', 'Rabid Speed', 'attackSpeed', rankValue('attackSpeed'), 5),
+        passive('rat-sc-spd', 'Skittering', 'speed', rankValue('speed'), 5),
+      ],
+    },
+    {
+      requiresInBranch: 5,
+      talents: [
+        passive('rat-sc-str', 'Sharp Teeth', 'strength', rankValue('strength'), 3),
+        passive('rat-sc-crit', 'Vicious', 'critChance', rankValue('critChance'), 3),
+      ],
+    },
+    {
+      requiresInBranch: 10,
+      talents: [
+        passive('rat-sc-as2', 'Gnashing', 'attackSpeed', rankValue('attackSpeed') * 2, 3),
+        passive('rat-sc-leech', 'Bloodgorge', 'leech', rankValue('leech') * 2, 3),
+      ],
+    },
+    {
+      requiresInBranch: 15,
+      talents: [
+        {
+          /**
+           * Zwieńczenie: lifesteal-na-trafienie skacze mocno (0.6 → 1.6 HP na
+           * cios). Przy wysokim attack-speedzie każdy cios to realne leczenie —
+           * szczur staje się wampirem, którego nie da się zajechać hordą.
+           */
+          id: 'rat-sc-apex',
+          name: 'RABID BLOOD',
+          desc: 'every hit heals FAR more · +attack speed',
+          kind: 'attackSpeed',
+          valuePerRank: rankValue('attackSpeed') * 3,
+          maxRank: 2,
+          grantsOnHitLifesteal: 1.6,
+        },
+      ],
+    },
+  ],
+};
+
+/**
+ * KRET — SAPPER (fuzja Engineera i Burrowera: KOP + BUDUJ). Nie walczy wręcz —
+ * stawia śmiercionośną infrastrukturę i przemieszcza się pod ziemią. Różni się
+ * od dzika (`TOTEM ENGINEER`, statyczna farma totemów) MOBILNOŚCIĄ: burrow czyni
+ * z niego sapera, który nagania hordę na własne miny.
+ *
+ *   Space  BURROW  zakop się (nietykalny) → wynurzenie z wstrząsem
+ *   Q  LAND MINE          mina zbliżeniowa — spam buduje pole minowe
+ *   W  DRILL TURRET       auto-strzelające działko
+ *   E  DEMOLITION CHARGE  wielki ładunek z długim tellem i ogłuszeniem
+ *   R  EARTHQUAKE         wstrząs 360° — czyści otoczenie
+ *
+ * Drzewko stoi na `minionDamage` (siła min i wieżyczek — jedyne źródło
+ * obrażeń), `cooldown` (szybsza fabrykacja), `minionCount` (więcej rozstawień)
+ * i `maxHp`. Zwieńczenie mocno podbija obrażenia deployables.
+ */
+const MOLE_SAPPER: TalentBranch = {
+  id: 'mole-sapper',
+  name: 'SAPPER',
+  tiers: [
+    specTier(
+      spec('mole-sapper', 'SAPPER', 'cooldown', 12,
+        'DIG + BUILD · Space burrow · Q mine · W turret · E charge · R quake',
+        {
+          skills: ['sapper-mine', 'sapper-turret', 'sapper-charge', 'sapper-earthquake'],
+          dash: 'burrow',
+        }),
+    ),
+    {
+      requiresInBranch: 0,
+      talents: [
+        // minionDamage to siła min i działek — filar obrażeń całej gałęzi.
+        passive('mole-sap-dmg', 'Shaped Charges', 'minionDamage', 35, 5, 'MINE & TURRET damage'),
+        passive('mole-sap-cd', 'Fast Fabrication', 'cooldown', rankValue('cooldown'), 5),
+      ],
+    },
+    {
+      requiresInBranch: 5,
+      talents: [
+        passive('mole-sap-count', 'Munitions Depot', 'minionCount', 2, 3, 'more deployables'),
+        passive('mole-sap-hp', 'Reinforced', 'maxHp', rankValue('maxHp') * 1.6, 3),
+      ],
+    },
+    {
+      requiresInBranch: 10,
+      talents: [
+        passive('mole-sap-dmg2', 'High Explosives', 'minionDamage', 70, 3, 'MINE & TURRET damage'),
+        passive('mole-sap-dur', 'Deep Reserves', 'minionDuration', 60, 3, 'deployable time'),
+      ],
+    },
+    {
+      requiresInBranch: 15,
+      talents: [passive('mole-sap-apex', 'Master Sapper', 'minionDamage', 160, 2, 'MINE & TURRET damage')],
+    },
+  ],
+};
+
+/**
+ * KRET — MAGMA. Mag ognia: kret kopie tak głęboko, że dobiera się do magmy
+ * i ciska nią po hordzie. Odrębny od pozostałych kasterów — nie kontrola
+ * (grawitacja niedźwiedzia, czas lisa, dźwięk nietoperza), tylko czyste
+ * PALENIE: pociski, pola lawy i opad meteorów.
+ *
+ *   Q  MAGMA BOLT   ognista kula, wybucha i podpala
+ *   W  LAVA POOL    kałuża lawy — cyklicznie podpala stojących
+ *   E  ERUPTION     erupcja 360° — burst ognia + podpalenie + odrzut
+ *   R  VOLCANO      stawia wulkan zrzucający meteory na losowe miejsca ~45 s
+ *
+ * Drzewko karmi DWA źródła ognia: `strength` (Q i ERUPTION liczą się z ciosu
+ * gracza) oraz `minionDamage` (lawa i meteory to jednostki). Do tego `cooldown`
+ * i `minionDuration` (dłuższy wulkan = dłuższy opad). Zwieńczenie podbija
+ * obrażenia obszarowe lawy i meteorów.
+ */
+const MOLE_MAGMA: TalentBranch = {
+  id: 'mole-magma',
+  name: 'MAGMA',
+  tiers: [
+    specTier(
+      spec('mole-magma', 'MAGMA', 'strength', 18,
+        'FIRE mage · Q bolt · W lava · E eruption · R VOLCANO',
+        { skills: ['magma-bolt', 'magma-lava', 'magma-eruption', 'magma-volcano'] }),
+    ),
+    {
+      requiresInBranch: 0,
+      talents: [
+        passive('mole-mag-str', 'Molten Core', 'strength', rankValue('strength'), 5),
+        passive('mole-mag-field', 'Scorched Earth', 'minionDamage', 35, 5, 'LAVA & METEOR damage'),
+      ],
+    },
+    {
+      requiresInBranch: 5,
+      talents: [
+        passive('mole-mag-cd', 'Eruptive', 'cooldown', rankValue('cooldown'), 3),
+        passive('mole-mag-crit', 'Flash Point', 'critChance', rankValue('critChance'), 3),
+      ],
+    },
+    {
+      requiresInBranch: 10,
+      talents: [
+        passive('mole-mag-str2', 'Pyroclasm', 'strength', rankValue('strength') * 2, 3),
+        passive('mole-mag-dur', 'Deep Vent', 'minionDuration', 60, 3, 'LAVA & VOLCANO time'),
+      ],
+    },
+    {
+      requiresInBranch: 15,
+      talents: [passive('mole-mag-apex', 'Meltdown', 'minionDamage', 140, 2, 'LAVA & METEOR damage')],
+    },
+  ],
+};
+
+/**
+ * NIEDŹWIEDŹ — HIBERNATION. Transform OBRONNY: śpij → obudź się kolosem.
+ * Trzecia twarz niedźwiedzia — nie mag pól (GRAVITY) i nie berserker na
+ * krawędzi (RAMPAGE), tylko nieustępliwy tank, który leczy się snem i cyklicznie
+ * zamienia w kolosa-niszczyciela.
+ *
+ *   Q  SWIPE       szeroki zamach łapą (rdzeń zwarcia)
+ *   W  HIBERNATE   sen: kanał leczący szybko, przerywany ruchem
+ *   E  GROUND SLAM grzmot 360° z odrzutem i ogłuszeniem — robi miejsce
+ *   R  COLOSSUS    forma kolosa na 14 s: +obrażenia, +pancerz, +atak
+ *
+ * Pętla: SLAM robi miejsce → HIBERNATE odbudowuje do pełna → COLOSSUS wchodzi
+ * w wymianę jako kolos. Drzewko stoi na `maxHp` i `armor` (przeżywalność, którą
+ * karmi sen), z `strength` (mocniejszy kolos — jego damageMult mnoży Twój cios)
+ * i `regen`. Zwieńczenie to skała maxHp.
+ */
+const BEAR_HIBERNATION: TalentBranch = {
+  id: 'bear-hib',
+  name: 'HIBERNATION',
+  tiers: [
+    specTier(
+      spec('bear-hib', 'HIBERNATION', 'maxHp', 45,
+        'SLEEP to heal, WAKE a COLOSSUS · Q swipe · W hibernate · E slam · R colossus',
+        { skills: ['bear-swipe', 'bear-hibernate', 'bear-slam', 'bear-colossus'] }),
+    ),
+    {
+      requiresInBranch: 0,
+      talents: [
+        // maxHp i armor to fundament: przeżywalność, którą sen zamienia w sustain.
+        passive('bear-hib-hp', 'Thick Fur', 'maxHp', rankValue('maxHp'), 5),
+        passive('bear-hib-arm', 'Hardened Hide', 'armor', rankValue('armor'), 5),
+      ],
+    },
+    {
+      requiresInBranch: 5,
+      talents: [
+        passive('bear-hib-str', 'Colossal Might', 'strength', rankValue('strength') * 1.6, 3),
+        passive('bear-hib-regen', 'Deep Slumber', 'regen', rankValue('regen') * 1.6, 3),
+      ],
+    },
+    {
+      requiresInBranch: 10,
+      talents: [
+        passive('bear-hib-hp2', 'Mountainous', 'maxHp', rankValue('maxHp') * 2, 3),
+        passive('bear-hib-arm2', 'Stone Skin', 'armor', rankValue('armor') * 2, 3),
+      ],
+    },
+    {
+      requiresInBranch: 15,
+      talents: [passive('bear-hib-apex', 'Unstoppable', 'maxHp', rankValue('maxHp') * 3, 2)],
+    },
+  ],
+};
+
+/**
+ * WILK — HOWL. Forma agresywna: wilkołak. Trzecia twarz wilka — nie combo
+ * błyskawic (THUNDER FANG) i nie dowódca watahy (ALPHA PACK), tylko SOLOWY
+ * berserker, który wyje, przemienia się i podtrzymuje trans rzezią.
+ *
+ *   Q  SLASH        błyskawiczny zamach pazurów (rdzeń, mnożony formą)
+ *   W  LUNGE        rzut na ofiarę z uderzeniem (gap-closer)
+ *   E  SAVAGE HOWL  wycie 360°: rani i przeraża — robi miejsce
+ *   R  WEREWOLF     forma wilkołaka; KAŻDE zabójstwo ją przedłuża
+ *
+ * Rytm: wpadaj (LUNGE), wyj i przemieniaj się (R), potem NIE PRZESTAWAJ zabijać
+ * — kill-chain trzyma wilkołaka w transie. Drzewko stoi na `attackSpeed` (forma
+ * to maszynka do ciosów) i `strength`, z `leech` (dobite wrogi leczą — sustain
+ * agresji) i `critChance`. Zwieńczenie to skała attack-speedu.
+ */
+const WOLF_HOWL: TalentBranch = {
+  id: 'wolf-howl',
+  name: 'HOWL',
+  tiers: [
+    specTier(
+      spec('wolf-howl', 'HOWL', 'attackSpeed', 15,
+        'WEREWOLF form fed by KILLS · Q slash · W lunge · E howl · R transform',
+        { skills: ['wolf-slash', 'wolf-lunge', 'savage-howl', 'wolf-howl'] }),
+    ),
+    {
+      requiresInBranch: 0,
+      talents: [
+        // attackSpeed to filar formy: więcej ciosów = więcej zabójstw = dłuższy trans.
+        passive('wolf-howl-as', 'Feral Speed', 'attackSpeed', rankValue('attackSpeed'), 5),
+        passive('wolf-howl-str', 'Rending Claws', 'strength', rankValue('strength'), 5),
+      ],
+    },
+    {
+      requiresInBranch: 5,
+      talents: [
+        passive('wolf-howl-leech', 'Bloodhunt', 'leech', rankValue('leech'), 3),
+        passive('wolf-howl-crit', 'Killer Instinct', 'critChance', rankValue('critChance'), 3),
+      ],
+    },
+    {
+      requiresInBranch: 10,
+      talents: [
+        passive('wolf-howl-as2', 'Frenzy', 'attackSpeed', rankValue('attackSpeed') * 2, 3),
+        passive('wolf-howl-str2', 'Savage', 'strength', rankValue('strength') * 2, 3),
+      ],
+    },
+    {
+      requiresInBranch: 15,
+      talents: [passive('wolf-howl-apex', 'Moonfury', 'attackSpeed', rankValue('attackSpeed') * 3, 2)],
+    },
+  ],
+};
+
+/**
+ * WYDRA — PLAYFUL. Trickster na krótkich cooldownach: nigdy nie przestajesz
+ * naciskać. Trzecia twarz wydry — nie support fal (TIDECALLER) i nie asasyn
+ * klonów (MIRROR), tylko PINBALL: odbijasz hordę tak, że wpada na siebie i na
+ * ściany (`fling`).
+ *
+ *   Q  SKIP SHOT   kamień skaczący po wrogach (tani poke, ~0,8 s)
+ *   W  TUMBLE      nietykalny przewrót (mobilność w pętli)
+ *   E  TAIL SLAP   klaps 360° — pinball: fling na siebie/ściany
+ *   R  RIPTIDE     wielki wybuch: ogromny fling + ogłuszenie (krótki cd)
+ *
+ * Drzewko stoi na `cooldown` (jeszcze gęstszy spam), `knockback` (dalszy odrzut
+ * = więcej zderzeń = więcej fling-bonusu) i `strength` (fling bije z obrażeń
+ * zwarcia). Zwieńczenie to skała cooldownu — pełna rotacja bez przestojów.
+ */
+const OTTER_PLAYFUL: TalentBranch = {
+  id: 'otter-playful',
+  name: 'PLAYFUL',
+  tiers: [
+    specTier(
+      spec('otter-playful', 'PLAYFUL', 'cooldown', 15,
+        'low-CD PINBALL · fling foes into each other · Q skip · W tumble · E slap · R riptide',
+        { skills: ['otter-skip', 'otter-tumble', 'otter-tailslap', 'otter-riptide'] }),
+    ),
+    {
+      requiresInBranch: 0,
+      talents: [
+        // cooldown to filar spamu; knockback karmi fling (dalej = więcej zderzeń).
+        passive('ott-play-cd', 'Playful Spirit', 'cooldown', rankValue('cooldown'), 5),
+        passive('ott-play-kb', 'Bumpers', 'knockback', rankValue('knockback'), 5),
+      ],
+    },
+    {
+      requiresInBranch: 5,
+      talents: [
+        passive('ott-play-str', 'Hard Knocks', 'strength', rankValue('strength'), 3),
+        passive('ott-play-spd', 'Slippery', 'speed', rankValue('speed'), 3),
+      ],
+    },
+    {
+      requiresInBranch: 10,
+      talents: [
+        passive('ott-play-cd2', 'Restless', 'cooldown', rankValue('cooldown') * 2, 3),
+        passive('ott-play-kb2', 'Wrecking Ball', 'knockback', rankValue('knockback') * 2, 3),
+      ],
+    },
+    {
+      requiresInBranch: 15,
+      talents: [passive('ott-play-apex', 'Endless Play', 'cooldown', rankValue('cooldown') * 3, 2)],
+    },
+  ],
+};
+
+/**
+ * ZAJĄC — AURA MASTER. Mobilna STACJA BUFFÓW z unikalnym rytmem: każdy slot to
+ * PASYWNA aura dla drużyny, aktywna DOPÓKI slot gotowy. Wciśnięcie odpala burst
+ * i startuje cooldown — a wtedy pasywna aura tego slotu MILKNIE. Największą
+ * wartość masz, gdy NIE naciskasz (wszystkie aury up); burst to ratunek za cenę
+ * chwilowej ciszy.
+ *
+ *   Q  MEND      pasywnie leczy drużynę · burst: duży heal
+ *   W  WARD      pasywnie daje pancerz · burst: REPULSE (odrzut 360°)
+ *   E  TEMPO     pasywnie skraca cooldowny drużyny · burst: zryw ataku
+ *   R  RADIANCE  pasywnie rani wrogów w polu · burst: wielka nowa
+ *
+ * Drzewko stoi na `range` (promień aur → RADIANCE na maksie sięga PRZEZ CAŁY
+ * EKRAN) i `cooldown` (krótsze ciemne okna, więcej burstów), z `strength`
+ * (RADIANCE i nowa skalują się obrażeniami) i `maxHp` (zając ma 70 HP).
+ * Zwieńczenie rozdmuchuje zasięg do granic areny.
+ */
+const HARE_AURAMASTER: TalentBranch = {
+  id: 'hare-aura',
+  name: 'AURA MASTER',
+  tiers: [
+    specTier(
+      spec('hare-aura', 'AURA MASTER', 'range', 15,
+        'team AURAS up while skills READY · Q mend · W ward · E tempo · R radiance',
+        {
+          skills: ['am-restore', 'am-repulse', 'am-quicken', 'am-radiance-nova'],
+          slotAuras: ['am-mend', 'am-ward', 'am-tempo', 'am-radiance'],
+        }),
+    ),
+    {
+      requiresInBranch: 0,
+      talents: [
+        // range = promień wszystkich aur (i skalowanie RADIANCE do fullscreena) — filar.
+        passive('hare-am-range', 'Wider Auras', 'range', rankValue('range'), 5),
+        passive('hare-am-cd', 'Attunement', 'cooldown', rankValue('cooldown'), 5),
+      ],
+    },
+    {
+      requiresInBranch: 5,
+      talents: [
+        passive('hare-am-str', 'Focused Power', 'strength', rankValue('strength'), 3, 'RADIANCE damage'),
+        passive('hare-am-hp', 'Hardy', 'maxHp', rankValue('maxHp') * 1.6, 3),
+      ],
+    },
+    {
+      requiresInBranch: 10,
+      talents: [
+        passive('hare-am-range2', 'Expansive', 'range', rankValue('range') * 2, 3),
+        passive('hare-am-cd2', 'Rapid Attunement', 'cooldown', rankValue('cooldown') * 2, 3),
+      ],
+    },
+    {
+      requiresInBranch: 15,
+      // Zwieńczenie w ZASIĘG: dopiero ono rozdmuchuje RADIANCE do rozmiaru ekranu.
+      talents: [passive('hare-am-apex', 'Boundless', 'range', rankValue('range') * 3, 2)],
+    },
+  ],
+};
+
+/**
  * Drzewka wszystkich klas. Nazwy gałęzi są tematyczne (gdd.md 5.4), ale poza
  * kretem ich zawartość jest PLACEHOLDEREM z pasywów — do zaprojektowania.
  */
 export const CLASS_TALENTS: ClassTalents[] = [
-  { classId: 'bear',     branches: [BEAR_GRAVITY,                                                         comingSoon('bear-2', 'RAMPAGE'),    comingSoon('bear-3', 'HIBERNATION')] },
-  { classId: 'wolf',     branches: [WOLF_THUNDER, WOLF_ALPHA,                                             comingSoon('wolf-3', 'HOWL')] },
+  { classId: 'bear',     branches: [BEAR_GRAVITY,                                                         BEAR_RAMPAGE,                       BEAR_HIBERNATION] },
+  { classId: 'wolf',     branches: [WOLF_THUNDER, WOLF_ALPHA,                                             WOLF_HOWL] },
   { classId: 'fox',      branches: [FOX_CHRONO, FOX_ARCANE,                                                comingSoon('fox-3', 'TRICKSTER')] },
-  { classId: 'hare',     branches: [HARE_SLIPSTREAM, HARE_SUMMONER,                                      comingSoon('hare-3', 'AURA MASTER')] },
-  { classId: 'mole',     branches: [MOLE_SNIPER,                                                          comingSoon('mole-2', 'ENGINEER'),   comingSoon('mole-3', 'BURROWER')] },
-  { classId: 'hedgehog', branches: [passiveBranch('hog-bramble', 'BRAMBLE', 'thorns', 'armor'),            comingSoon('hog-2', 'CURL'),        HEDGEHOG_BASTION] },
-  { classId: 'bat',      branches: [passiveBranch('bat-blood', 'BLOODSONG', 'leech', 'attackSpeed'),       comingSoon('bat-2', 'SONAR'),       BAT_NIGHTTERROR] },
+  { classId: 'hare',     branches: [HARE_SLIPSTREAM, HARE_SUMMONER,                                      HARE_AURAMASTER] },
+  { classId: 'mole',     branches: [MOLE_SNIPER,                                                          MOLE_SAPPER,                        MOLE_MAGMA] },
+  { classId: 'hedgehog', branches: [HEDGEHOG_SONIC,                                                         HEDGEHOG_CURL,                      HEDGEHOG_BASTION] },
+  { classId: 'bat',      branches: [passiveBranch('bat-blood', 'BLOODSONG', 'leech', 'attackSpeed'),       BAT_SONAR,                          BAT_NIGHTTERROR] },
   { classId: 'gorilla',  branches: [passiveBranch('gor-wreck', 'WRECKER', 'strength', 'knockback'),        comingSoon('gor-2', 'WARBEAT'),     GORILLA_IRONGRIP] },
-  { classId: 'rat',      branches: [passiveBranch('rat-plague', 'PLAGUEBEARER', 'attackSpeed', 'strength'), comingSoon('rat-2', 'SWARM'),      comingSoon('rat-3', 'SCURRY')] },
+  { classId: 'rat',      branches: [passiveBranch('rat-plague', 'PLAGUEBEARER', 'attackSpeed', 'strength'), RAT_SWARM,      RAT_SCURRY] },
   { classId: 'boar',     branches: [BOAR_ENGINEER, passiveBranch('boar-stamp', 'STAMPEDE', 'knockback', 'maxHp'), comingSoon('boar-3', 'TUSKS')] },
-  { classId: 'otter',    branches: [OTTER_TIDECALLER, OTTER_MIRROR,                                       comingSoon('ott-3', 'PLAYFUL')] },
-  { classId: 'hyena',    branches: [HYENA_NECRO, passiveBranch('hy-scav', 'SCAVENGER', 'strength', 'leech'), comingSoon('hy-3', 'CACKLE')] },
+  { classId: 'otter',    branches: [OTTER_TIDECALLER, OTTER_MIRROR,                                       OTTER_PLAYFUL] },
+  { classId: 'hyena',    branches: [HYENA_NECRO, passiveBranch('hy-scav', 'SCAVENGER', 'strength', 'leech'), HYENA_CACKLE] },
 ];
 
 /* ── Dostęp ─────────────────────────────────────────────────────────────── */

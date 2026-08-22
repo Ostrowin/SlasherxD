@@ -215,6 +215,27 @@ export const STATUSES: StatusDef[] = [
     flees: true,
   },
   {
+    /**
+     * VENOM — jad szczura SCURRY. PRZECIWIEŃSTWO `plague`: nie rozprzestrzenia
+     * się, za to mocno stackuje i SPOWALNIA. `onHit` nakłada go KAŻDYM
+     * auto-atakiem, więc skirmisher trzymający wysoki attack-speed topi
+     * pojedynczy cel w jadzie, a spowolnienie trzyma ofiarę w zasięgu ukąszeń
+     * (hit-and-run, nie hit-and-lose). Skupiony single-target — gdy zaraza
+     * szczura-dowódcy jest szerokim AoE.
+     */
+    id: 'venom',
+    name: 'VENOM',
+    color: 0x7fd93a,
+    durationTicks: secs(4),
+    intervalTicks: secs(0.4),
+    damagePerTick: 3,
+    speedMult: 0.7,
+    vulnerability: 1,
+    maxStacks: 6,
+    spreadRadius: 0,
+    spreadCount: 0,
+  },
+  {
     /** WEAKEN — osłabiony wróg obrywa mocniej od wszystkiego. */
     id: 'weaken',
     name: 'WEAKEN',
@@ -389,6 +410,165 @@ AURAS.push({
   enemyDamage: 0,
   allyHeal: 0,
   allyBuff: { kind: 'armor', value: 6 },
+});
+
+AURAS.push({
+  /**
+   * JEŻ SONIC — MOMENTUM (`E`). Aura prędkości na czas. Solo buffuje samego
+   * Sonica, w co-opie stojących obok. U Sonica prędkość wchodzi w obrażenia
+   * (`speedToDamage`), więc ta aura jest jednocześnie mobilnością i DPS-em.
+   */
+  id: 'momentum',
+  name: 'MOMENTUM',
+  color: 0x8a9a5b,
+  radius: 260,
+  intervalTicks: secs(0.5),
+  enemyStatus: '',
+  enemyDamage: 0,
+  allyHeal: 0,
+  allyBuff: { kind: 'speed', value: 40 },
+});
+
+AURAS.push({
+  /**
+   * JEŻ CURL — IRON CURL (`W`). Aura na czas: pancerz dla gracza (twardnieje
+   * w kuli) i KOLCE raniące wszystkich wrogów w ciasnym promieniu. Jedna
+   * z niewielu aur zadających obrażenia — bo to jest cała fantazja tanka jeża:
+   * stać w hordzie i mleć ją samym dotknięciem.
+   */
+  id: 'ironcurl',
+  name: 'IRON CURL',
+  color: 0x8a9a5b,
+  radius: 150,
+  intervalTicks: secs(0.4),
+  enemyStatus: '',
+  enemyDamage: 6,
+  allyHeal: 0,
+  allyBuff: { kind: 'armor', value: 10 },
+});
+
+AURAS.push({
+  /**
+   * NIETOPERZ SONAR — SHRIEK (`E`). Aura rezonansu na czas: wrogowie w zasięgu
+   * są OSŁABIENI (`weaken`), czyli obrywają mocniej od wszystkiego. SONAR
+   * podbija obrażenia CAŁEJ drużyny, nie mając własnych dużych liczb — tym samym
+   * polem `vulnerability`, którego używa już SOAKED wydry.
+   */
+  id: 'shriek',
+  name: 'SHRIEK',
+  color: 0x8e44ad,
+  radius: 280,
+  intervalTicks: secs(0.5),
+  enemyStatus: 'weaken',
+  enemyDamage: 0,
+  allyHeal: 0,
+  allyBuff: null,
+});
+
+AURAS.push({
+  /**
+   * NIEDŹWIEDŹ RAMPAGE — BLOODLUST (`W`). Aura krwawego szału: leczy i
+   * przyspiesza atak. To sustain, który pozwala grać nisko — na pasku, na
+   * którym `lostHpToDamage` daje najwięcej. Solo działa na samego niedźwiedzia,
+   * w co-opie na stojących obok (jak każda aura buffowa).
+   */
+  id: 'bloodlust',
+  name: 'BLOODLUST',
+  color: 0xb5342b,
+  radius: 240,
+  intervalTicks: secs(0.5),
+  enemyStatus: '',
+  enemyDamage: 0,
+  allyHeal: 4,
+  allyBuff: { kind: 'attackSpeed', value: 40 },
+});
+
+/* ── ZAJĄC — AURA MASTER ─────────────────────────────────────────────────────
+ * Cztery aury PASYWNE (jedna na slot Q/W/E/R) + dwie BURST. Pasywne są aktywne,
+ * DOPÓKI ich slot jest gotowy — po wciśnięciu skill idzie na cooldown i pasywna
+ * aura gaśnie, a w zamian dostajesz jednorazowy burst (silniejszy). Promień aur
+ * pasywnych skaluje się `rangeMult` gracza (drzewko `range`), więc wymaksowana
+ * RADIANCE (`R`) sięga przez cały ekran. Wpięcie: `slotAuras` w world.ts.
+ */
+AURAS.push({
+  /** `Q` pasywna — leczenie drużyny. Burst: `am-mend-burst`. */
+  id: 'am-mend',
+  name: 'MEND',
+  color: 0x5be8a0,
+  radius: 240,
+  intervalTicks: secs(0.5),
+  enemyStatus: '',
+  enemyDamage: 0,
+  allyHeal: 3,
+  allyBuff: null,
+});
+AURAS.push({
+  /** `W` pasywna — pancerz drużynie. */
+  id: 'am-ward',
+  name: 'WARD',
+  color: 0x5b9ae8,
+  radius: 240,
+  intervalTicks: secs(0.5),
+  enemyStatus: '',
+  enemyDamage: 0,
+  allyHeal: 0,
+  allyBuff: { kind: 'armor', value: 10 },
+});
+AURAS.push({
+  /**
+   * `E` pasywna — REDUKCJA COOLDOWNÓW drużynie (nowy rodzaj ally-buffa;
+   * `applyAuraBuff` obsługuje `cooldown` → `auraCooldownMult`). Skraca ciemne
+   * okna wszystkich aur — sama siebie reguluje.
+   */
+  id: 'am-tempo',
+  name: 'TEMPO',
+  color: 0xe8d15b,
+  radius: 240,
+  intervalTicks: secs(0.5),
+  enemyStatus: '',
+  enemyDamage: 0,
+  allyHeal: 0,
+  allyBuff: { kind: 'cooldown', value: 25 },
+});
+AURAS.push({
+  /**
+   * `R` pasywna — RADIANCE: obrażenia co tyknięcie WSZYSTKIM wrogom w promieniu.
+   * Rdzeń ofensywny. Promień × `rangeMult`, więc drzewko `range` rozdmuchuje go
+   * do rozmiaru ekranu przy maksie.
+   */
+  id: 'am-radiance',
+  name: 'RADIANCE',
+  color: 0xe85b8a,
+  radius: 220,
+  intervalTicks: secs(0.5),
+  enemyStatus: '',
+  enemyDamage: 8,
+  allyHeal: 0,
+  allyBuff: null,
+});
+AURAS.push({
+  /** BURST `Q` — mocne leczenie na krótko (auraTicks po wciśnięciu). */
+  id: 'am-mend-burst',
+  name: 'RESTORE',
+  color: 0x8bffc0,
+  radius: 260,
+  intervalTicks: secs(0.25),
+  enemyStatus: '',
+  enemyDamage: 0,
+  allyHeal: 16,
+  allyBuff: null,
+});
+AURAS.push({
+  /** BURST `E` — zryw prędkości ataku drużynie na krótko. */
+  id: 'am-haste-burst',
+  name: 'QUICKEN',
+  color: 0xfff08b,
+  radius: 260,
+  intervalTicks: secs(0.5),
+  enemyStatus: '',
+  enemyDamage: 0,
+  allyHeal: 0,
+  allyBuff: { kind: 'attackSpeed', value: 45 },
 });
 
 export function auraById(id: string): AuraDef | null {

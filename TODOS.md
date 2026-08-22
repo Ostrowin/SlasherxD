@@ -40,3 +40,85 @@ Co-op gra się dziś **tylko między kartami jednego komputera**. Do grania z zi
 - [x] ~~Ilu graczy maksymalnie?~~ — **1-8 graczy** (decyzja 2026-07-19)
 - [ ] Drop-in w trakcie runu czy tylko wspólny start? (drop-in znacznie droższy w lockstepie)
 - [ ] Tylko LAN/WebRTC prywatnie czy też gra przez internet? (internet = potrzebny malutki serwer sygnalizacyjny)
+
+---
+
+## Trudność: REAKCJA, nie ściana HP *(kierunek 2026-08)*
+
+Cel: gra ma być **naprawdę trudna przez wymóg SZYBKIEJ REAKCJI**, a nie przez one-shoty
+od bossa. Ataki mają być **telegrafowane i unikalne**, ale nietrafienie **KUMULUJE się**
+(chip + debuff + zostajesz w tyle z hordą). Śmierć = suma błędów w reakcjach, nie jeden cios.
+
+- [ ] **Wrogowie wymuszający KONKRETNĄ reakcję** (nie tylko „biegnij i bij"): charger (unik
+      w bok), bomber (odejdź od pola), sniper (przerwij linię wzroku za budynkiem), grabber
+      (nie daj się odizolować), shielded (flankuj — bij z tyłu), enrage-na-niskim-HP (dobij
+      albo się cofnij).
+- [ ] **Ataki karzące STANIE**: trwałe pola pod nogami, rozszerzające się pierścienie —
+      wymuszają ciągły ruch, a nie facetank.
+- [ ] **Arena jako narzędzie**: wysokie budynki blokujące LoS pocisków bossa (chowanie się),
+      wąskie gardła. Dziś mamy tylko okrągłe głazy (`OBSTACLE_*`) — dołożyć cover.
+- [ ] **Bossy fazowe (docelowa wizja)**: ~10 ataków na bossa, każdy wymaga innej reakcji —
+      dash pod slam, skok nad falą, schowaj się za budynkiem przed beamem, przejdź kawałek
+      w oknie recovery. Rytm faz: **atak → unik · recovery → burst · reposycja → leczenie/schowanie**.
+- [ ] **Attack-tool matching**: beam = przerwij LoS, slam = dash-iframe, pull = wydashuj się.
+      Boss uczy używać kitu (dash, blink, mur, tarcza), zamiast go ignorować.
+
+### Decyzja: combo i liczba skilli
+- [x] **NIE zmuszać wszystkich klas do combo** — to zabija tożsamości (kanały, turret,
+      transform…). Combo zostaje **opcjonalną warstwą DODATKOWĄ** na wierzchu Q/W/E/R (jak
+      wilk Thunder Fang, ale additive), nagroda dla wymiatających, nie przymus.
+- [ ] Rdzeń: **Q/W/E/R + dash** (już 6 wejść ekspresji). Rozważyć **5. slot skilla** dopiero
+      po wyciśnięciu warstwy combo. Trudność ma iść z WROGÓW, nie ze skomplikowania klawiatury.
+- [ ] Dać każdemu specowi **1–3 opcjonalne combo** (rozbudowa `comboConfig.ts`).
+
+## Nowe prymitywy — backlog *(propozycje 2026-08, inspiracja Dota 2 / WoW)*
+
+Silnikowe „czasowniki" do zbudowania (każdy generyczny, reużywalny przez wiele skilli):
+
+- [ ] **`transform`** — Lycan Shapeshift / DH Metamorphosis / druid forms: czasowa forma
+      nadpisuje staty (dmg/speed/atak-speed/pancerz/rozmiar) i opcjonalnie podmienia Q/W/E/R.
+      Werewolf, bear-form, demon-form. *(najbardziej soczysty — otwiera kilka klas naraz)*
+- [ ] **`ward` (riposta)** — Nyx Spiked Carapace / Centaur Return / Blade Mail: reaktywnie
+      pochłania N ciosów, ODBIJA % do napastnika, opcjonalnie go ogłusza. *(przewija się od
+      początku sesji — wciąż niezbudowane; idealny pod reaktywną trudność)*
+- [ ] **`mark` + detonate** — Venomancer / Bane / WoW Affliction: trafienia nabijają stacki
+      klątwy, osobny skill DETONUJE je w AoE za burst ∝ liczbie stacków.
+- [ ] **`onHit` (orb)** — orby Doty / trucizny WoW: KAŻDY auto-atak nakłada efekt (status /
+      **lifesteal %** / splash). Daje też lifesteal-na-trafienie, którego dziś brak.
+- [ ] **`fling` (kolizja)** — Magnus Skewer / Tiny Toss: knockback zadaje BONUS, gdy wróg
+      wpadnie w innego LUB w ŚCIANĘ. Realne combo z murami BASTIONa.
+- [ ] **`globalStrike`** — Zeus ult / Spectre Haunt: rani WSZYSTKICH na arenie / w ogromnym
+      promieniu, opcjonalnie status. Dramatyczne „czyszczenie ekranu" jako ultimate.
+- [ ] **`shield` (co-op)** — WoW Power Word: Shield / Abaddon: czasowa tarcza pochłaniająca
+      X obrażeń sobie i sojusznikom.
+
+## Kolejne specjalizacje — propozycje *(mapowane na comingSoon, każda pokazuje nowy prymityw)*
+
+- [ ] **Wolf HOWL → WEREWOLF** (`transform`): wycie → forma wilkołaka (+dmg/atak-speed/rozmiar),
+      ramp utrzymywany łańcuchem zabójstw.
+- [ ] **Fox TRICKSTER → riposta/unik** (`ward`): spiked carapace (odbij+ogłusz) + wabik-iluzja
+      (ściąga aggro i wybucha) + blink.
+- [ ] **Rat SWARM → PLAGUELORD** (`mark`+detonate): nabij hordę stackami zarazy → RUPTURE
+      zmiata falę jednym wciśnięciem. + rój szczurów.
+- [ ] **Boar TUSKS → charge + fling** (`fling`): szarża niosąca nabitego wroga; rzut w grupę
+      albo w ŚCIANĘ = bonus.
+- [ ] **Mole BURROWER → ambush** (stan zakopania + `globalStrike`-lite): zakop się (nietykalny,
+      szybki ruch), wynurzenie = EPICENTER (pulsujące fale AoE).
+- [ ] **Rat SCURRY → truciciel** (`onHit`): auto-ataki trują i spowalniają, hit-and-run.
+- [ ] **Gorilla WARBEAT → co-op support** (`shield` + aura atak-speedu dla drużyny).
+- [ ] **Hare AURA MASTER → mobilny support**: wiele aur naraz + `shield`.
+- [ ] **Otter PLAYFUL → pinball** (`fling`): odbijasz wrogów tak, że wpadają na siebie.
+- [ ] **Bear HIBERNATION → transform obronny** (`transform` + `channel`): sen (regen) →
+      przebudzenie w formie-kolosie.
+- [ ] **Pasywki → pełne speki**: bat BLOODSONG, gorilla WRECKER, rat PLAGUEBEARER, boar
+      STAMPEDE, hyena SCAVENGER (dziś tylko staty).
+
+## Domknięcia z sesji 2026-08 *(drobne, silnikowe)*
+
+- [ ] **Ściany BASTIONa nie blokują POCISKÓW** — `blocksProjectiles` na murach nie jest
+      wpięte w `stepProjectiles` (ruch blokują, strzały wciąż przelatują).
+- [ ] **Hook `grabsAllies`** (co-op ratunek — dociągnij sojusznika) — stub.
+- [ ] **Render taunta** (WAR ROAR / PROVOKE) bez własnej grafiki (widać tylko po aurze / obrocie wrogów).
+- [ ] **Strojenie do sprawdzenia w grze**: SONAR (możliwe za słaby — niska baza dmg bata),
+      RAMPAGE (bench wygrał moc 9.85 — możliwe za mocny), BASTION (realny zysk dopiero w grze
+      ręcznej — bot nie pilotuje buildera).

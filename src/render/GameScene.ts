@@ -674,7 +674,7 @@ export class GameScene extends Phaser.Scene {
         this.fxGfx
           .lineStyle(3, 0x9a7bff, 0.5 + 0.4 * puls)
           .strokeCircle(p.channelX, p.channelY, pay.radius);
-      } else {
+      } else if (pay.type === 'drain') {
         // drain: wiązka do celu, który sączy silnik (targetMob albo najbliższy).
         const target = this.drainTargetOf(p, pay.targetRadius);
         if (target) {

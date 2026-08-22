@@ -98,7 +98,11 @@ export type ItemKind =
   | 'projectileCount'
   | 'chainCount'
   /** +% obrażeń KAŻDEGO rykoszetu/błyskawicy (obrażenia na odbicie). */
-  | 'chainDamage';
+  | 'chainDamage'
+  /* Ulepszenia skilli NIGHT TERROR (nietoperz). Tylko w talentach — nie w
+     dropie ani kartach, więc nie trafiają do ITEMS/UPGRADES. */
+  | 'drainTargets'
+  | 'summonCount';
 
 export interface ItemDef {
   kind: ItemKind;

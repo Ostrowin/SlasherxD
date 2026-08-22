@@ -11,6 +11,7 @@ import {
   type DashDef, type SkillDef, type SummonSkill, type ProjectileSkill,
   type BlinkSkill, type PhaseSwapSkill,
   type HookSkill, type TauntSkill, type ChannelSkill, type WallSkill,
+  type DetonateSkill,
 } from './skillsConfig';
 import {
   MINION_POOL_SIZE, MINIONS, minionById, type MinionDef,
@@ -156,6 +157,8 @@ export interface Mob {
   prevX: number;
   prevY: number;
   hp: number;
+  /** HP przy spawnie = maksimum. Do ułamka życia (egzekucja hieny, paski HP). */
+  maxHp: number;
   speed: number;
   /**
    * Id ostatniego łańcucha, który trafił tego wroga. Odbicie pomija cele
@@ -335,8 +338,8 @@ export interface Hook {
 
 /**
  * Tymczasowa ściana (`WallSkill`) — JEDEN odcinek. Pierścień to kilka slotów
- * poola naraz. Kolizja (blokowanie pathingu/pocisków) jeszcze niepodpięta —
- * patrz TODO w `stepWalls`.
+ * poola naraz. Blokuje ruch: mobki i gracz nie przechodzą (`pushOutOfWalls`,
+ * wpięte w `movePlayer` i `moveMobsAndAttack`). Bossów nie zatrzymuje.
  */
 export interface Wall {
   alive: boolean;
@@ -431,6 +434,37 @@ export interface Player {
   attackSpeedMult: number;
   rangeMult: number;
   damageMult: number;
+  /**
+   * SONIC: ile NADWYŻKI prędkości zamienia się w obrażenia. 0 = brak (każda
+   * inna klasa). >0 = obrażenia gracza rosną wraz z `speedMult × auraSpeedMult`,
+   * więc `speed` (normalnie defensywny) staje się głównym statem DPS. Wchodzi
+   * do `meleeDamageOf`, więc karmi WSZYSTKO: roll, spin, auto-atak. Nadaje to
+   * specjalizacja przez `grantsSpeedDamage`.
+   */
+  speedToDamage: number;
+  /**
+   * CURL: ile NADWYŻKI życia (`maxHpBonus` ponad bazę klasy) zamienia się
+   * w obrażenia. 0 = brak. >0 = tank bije tym mocniej, im jest twardszy —
+   * „touch me and regret it" jako mechanika. Też w `meleeDamageOf`, więc karmi
+   * cały kit CURL-a (nova, slam, auto-atak). Nadaje `grantsHpDamage`.
+   */
+  hpToDamage: number;
+  /**
+   * RAMPAGE (niedźwiedź): ile BRAKUJĄCEGO życia zamienia się w obrażenia —
+   * odwrotność CURL-a. 0 = brak. >0 = im niżej masz pasek, tym mocniej bijesz
+   * (berserker). Też w `meleeDamageOf`, więc karmi cały kit. Ryzyko/nagroda:
+   * niski HP to potęga, ale i śmierć — sustain (leech, BLOODLUST) trzyma Cię
+   * w grze. Nadaje `grantsLostHpDamage`.
+   */
+  lostHpToDamage: number;
+  /**
+   * CACKLE (hiena): egzekucja — bonus do obrażeń rosnący z BRAKIEM życia CELU.
+   * 0 = brak. >0 = im bardziej ranny wróg, tym mocniej go bijesz („laughs at
+   * the wounded"). Wchodzi w `rollDamage` (czyta ułamek HP celu przez `Mob.maxHp`),
+   * więc dotyczy KAŻDEGO trafienia z celem: cios, stożek, nawet minion gracza.
+   * Nadaje `grantsExecuteDamage`.
+   */
+  executeToDamage: number;
   shieldCharges: number;
   regenPerSec: number;
   maxHpBonus: number;
@@ -461,6 +495,26 @@ export interface Player {
    * hordę, zamiast bić w jeden cel.
    */
   turretBoltChains: number;
+  /** Ile DODATKOWYCH celów sączy jednocześnie `channel/drain` (NIGHT TERROR Q). */
+  drainExtraTargets: number;
+  /** Ile DODATKOWYCH jednostek stawia skill `summon` na rzut (NIGHT TERROR R). */
+  summonCountBonus: number;
+  /**
+   * `onHit` (SCURRY): indeks statusu nakładanego KAŻDYM auto-atakiem, który
+   * zadał obrażenia (-1 = żaden, każda inna klasa). To jest cały prymityw orba:
+   * zwykły cios zaczyna truć/spowalniać bez osobnego skilla. Wchodzi tylko
+   * w `applyMelee`, więc skille i tak niosą swój status z definicji. Nadaje
+   * `grantsOnHitStatus`.
+   */
+  onHitStatus: number;
+  /**
+   * `onHit` (SCURRY): ile HP leczy KAŻDY auto-atak, który zadał obrażenia.
+   * Pierwszy w grze lifesteal-NA-TRAFIENIE (dotąd `leech` był tylko na
+   * zabójstwo). Skaluje się z attack-speedem — więcej ciosów = więcej
+   * leczenia — dlatego GNAW FRENZY / RABID robią z papierowego szczura wampira.
+   * Nadaje `grantsOnHitLifesteal`, apex (`RABID BLOOD`) podbija.
+   */
+  onHitLifesteal: number;
 
   /* ── Combo (comboConfig.ts) — dziś wyłącznie Thunder Fang wilka ─────── */
   /** Combo, które gracz zna. Puste = klawisze działają zwyczajnie. */
@@ -514,6 +568,21 @@ export interface Player {
   empowerTicks: number;
   /** +% prędkości ataku na czas trwania. */
   empowerAttackSpeed: number;
+
+  /* ── Transformacja (`TransformSkill`) ───────────────────────────────────
+   * Czasowa FORMA nadpisująca staty (dziś: niedźwiedzia COLOSSUS). Mnożniki są
+   * dokładane w `stepAuras` (ta sama warstwa co aury), więc gdy `transformTicks`
+   * spadnie do 0, przestają wchodzić — staty wracają same, bez cofania. */
+  /** Ile ticków formy zostało; 0 = brak formy. */
+  transformTicks: number;
+  transformDamageMult: number;
+  transformSpeedMult: number;
+  transformAttackSpeedMult: number;
+  transformArmorBonus: number;
+  /** Ile ticków dokłada JEDNO zabójstwo w formie; 0 = forma tylko na zegar. */
+  transformKillExtend: number;
+  /** Sufit przedłużania (= czas bazowy formy) — zabójstwa nie leczą ponad to. */
+  transformMaxTicks: number;
 
   /* ── Kanałowanie (`ChannelSkill`) ───────────────────────────────────── */
   /** Ile ticków kanału zostało; 0 = nie kanałuje. Ruch to zeruje. */
@@ -585,6 +654,19 @@ export interface Player {
   auraSpeedMult: number;
   auraAttackSpeedMult: number;
   auraArmorFlat: number;
+  /**
+   * Mnożnik cooldownów Z AUR (redukcja), przeliczany od zera co tick jak reszta
+   * warstwy. 1 = bez zmian; TEMPO zająca (`am-tempo`) zbija go poniżej 1. Wchodzi
+   * w `skillCooldownTicksOf`, więc skraca cooldowny CAŁEJ drużyny w zasięgu.
+   */
+  auraCooldownMult: number;
+  /**
+   * AURA MASTER (zając): aura na slot Q/W/E/R (indeks = slot), aktywna DOPÓKI
+   * slot gotowy (`skillCooldowns[i] <= 0`). Po wciśnięciu skill idzie na
+   * cooldown i jego pasywna aura gaśnie. Pusta lista = każda inna klasa. Nadaje
+   * `grantsSlotAuras`.
+   */
+  slotAuras: string[];
   /** Szansa na trafienie krytyczne w procentach (0-100). */
   critChance: number;
   /** Mnożnik obrażeń krytycznych — bazowo 2x, rośnie od itemów i talentów. */
@@ -759,7 +841,7 @@ export class World {
           defIndex: -1, ticksLeft: 0, stacks: 0, tickIn: 0, ownerIndex: 0,
         })),
         alive: false, defIndex: 0, x: 0, y: 0, prevX: 0, prevY: 0,
-        hp: 0, speed: 0, chainMark: -1, attackCooldown: 0, lastHitTick: -100,
+        hp: 0, maxHp: 0, speed: 0, chainMark: -1, attackCooldown: 0, lastHitTick: -100,
         state: 'chase', stateTicks: 0, windupStartTick: -100, lastSlamTick: -100,
         targetPlayer: 0, tauntUntilTick: -100, tauntedBy: 0,
         bossIndex: -1, phaseIndex: 0, attackIndex: 0,
@@ -818,11 +900,13 @@ export class World {
       meleeCooldown: cls.meleeIntervalTicks, lastMeleeTick: -1,
       lastSkillTick: -1, lastSkillDirX: 1, lastSkillDirY: 0,
       armorFlat: 0, speedMult: 1, attackSpeedMult: 1, rangeMult: 1, damageMult: 1,
+      speedToDamage: 0, hpToDamage: 0, lostHpToDamage: 0, executeToDamage: 0,
       shieldCharges: 0, regenPerSec: 0, maxHpBonus: 0, cooldownMult: 1,
       leechHealPerKill: 0, magnetBonus: 0, knockbackMult: 1, thornsDamage: 0,
       dropChanceBonus: 0, raiseRadius: 0,
       minionDamageMult: 1, minionHpMult: 1, minionDurationMult: 1, minionCountBonus: 0,
-      turretBoltChains: 0,
+      turretBoltChains: 0, drainExtraTargets: 0, summonCountBonus: 0,
+      onHitStatus: -1, onHitLifesteal: 0,
       projectileCountBonus: 0, chainCountBonus: 0, chainDamageMult: 1,
       comboIds: [], comboSeq: [], comboIdleTicks: 0,
       comboCooldowns: COMBOS.map(() => 0),
@@ -830,6 +914,9 @@ export class World {
       chainBuffTicks: 0, chainBuffUses: 0, chainBuffChains: 0,
       chainBuffRange: 0, chainBuffFalloff: 1, chainBuffMult: 1, chainBuffName: '', chainBuffVisual: '',
       empowerTicks: 0, empowerAttackSpeed: 0,
+      transformTicks: 0, transformDamageMult: 1, transformSpeedMult: 1,
+      transformAttackSpeedMult: 1, transformArmorBonus: 0,
+      transformKillExtend: 0, transformMaxTicks: 0,
       channelTicks: 0, channelSkillId: '', channelX: 0, channelY: 0, lastChannelTick: -1,
       blinkX: 0, blinkY: 0, blinkTicks: 0, lastBlinkTick: -1,
       portalCooldown: 0, lastPortalTick: -1,
@@ -838,6 +925,7 @@ export class World {
       packLeader: false, packInstinct: 0, allyCount: 0,
       auraIds: [], auraTicks: AURAS.map(() => 0),
       auraDamageMult: 1, auraSpeedMult: 1, auraAttackSpeedMult: 1, auraArmorFlat: 0,
+      auraCooldownMult: 1, slotAuras: [],
       critChance: 0, critDamageMult: 2, lastCritTick: -1,
       kills: 0, itemCounts: ITEMS.map(() => 0), totalItemsCollected: 0,
       lastPickupTick: -1, lastPickupDefIndex: -1, lastShieldTick: -1,
@@ -925,6 +1013,12 @@ export class World {
     }
     if (slot.def.grantsPack) p.packLeader = true;
     if (slot.def.grantsTurretChains) p.turretBoltChains = slot.def.grantsTurretChains;
+    if (slot.def.grantsSpeedDamage) p.speedToDamage = slot.def.grantsSpeedDamage;
+    if (slot.def.grantsHpDamage) p.hpToDamage = slot.def.grantsHpDamage;
+    if (slot.def.grantsLostHpDamage) p.lostHpToDamage = slot.def.grantsLostHpDamage;
+    if (slot.def.grantsExecuteDamage) p.executeToDamage = slot.def.grantsExecuteDamage;
+    if (slot.def.grantsOnHitStatus) p.onHitStatus = statusIndexById(slot.def.grantsOnHitStatus);
+    if (slot.def.grantsOnHitLifesteal) p.onHitLifesteal = slot.def.grantsOnHitLifesteal;
     if (slot.def.grantsRicochet) {
       const r = slot.def.grantsRicochet;
       p.meleeChains = r.chains;
@@ -937,6 +1031,8 @@ export class World {
     if (slot.def.grantsAura && !p.auraIds.includes(slot.def.grantsAura)) {
       p.auraIds.push(slot.def.grantsAura);
     }
+    // AURA MASTER: aury sprzężone ze slotami Q/W/E/R (aktywne, gdy slot gotowy).
+    if (slot.def.grantsSlotAuras) p.slotAuras = slot.def.grantsSlotAuras.slice();
     if (slot.def.grantsDash) {
       p.dashId = slot.def.grantsDash;
       p.dashCooldown = 0;
@@ -961,7 +1057,28 @@ export class World {
     return p.cls.meleeRange * p.rangeMult;
   }
   meleeDamageOf(p: Player): number {
-    return p.cls.meleeDamage * p.damageMult * p.auraDamageMult;
+    let dmg = p.cls.meleeDamage * p.damageMult * p.auraDamageMult;
+    // SONIC: nadwyżka prędkości ponad bazę (`speedMult × auraSpeedMult`) wchodzi
+    // w obrażenia. `max(0, …)` — spowolnienie nigdy nie zbija poniżej bazy. To
+    // przez tę metodę liczą się roll, spin i auto-atak, więc jeden hook skaluje
+    // całą gałąź prędkością.
+    if (p.speedToDamage > 0) {
+      const speedFactor = p.speedMult * p.auraSpeedMult;
+      dmg *= 1 + Math.max(0, speedFactor - 1) * p.speedToDamage;
+    }
+    // CURL: nadwyżka HP nad bazę klasy wchodzi w obrażenia — tank bije tym
+    // mocniej, im jest twardszy. Ten sam wzorzec co SONIC, tylko oś to życie.
+    if (p.hpToDamage > 0) {
+      dmg *= 1 + Math.max(0, p.maxHpBonus / p.cls.maxHp) * p.hpToDamage;
+    }
+    // RAMPAGE: BRAKUJĄCE życie wchodzi w obrażenia — odwrotność CURL-a. Im niżej
+    // pasek, tym mocniejszy cios (berserker na krawędzi). Wyleczenie się zdejmuje
+    // premię, więc gałąź sama reguluje: bądź nisko, ale nie martwy.
+    if (p.lostHpToDamage > 0) {
+      const missing = 1 - p.hp / this.maxHpOf(p);
+      dmg *= 1 + Math.max(0, missing) * p.lostHpToDamage;
+    }
+    return dmg;
   }
   meleeIntervalOf(p: Player): number {
     return Math.max(
@@ -980,7 +1097,9 @@ export class World {
   }
   skillCooldownTicksOf(p: Player, slot = 0): number {
     const skill = this.skillOf(p, slot);
-    return skill ? Math.round(skill.cooldownTicks * p.cooldownMult) : 0;
+    // `auraCooldownMult` < 1 = redukcja z aury TEMPO (AURA MASTER) — liczona
+    // w chwili castu, więc krótszy cooldown dostajesz, gdy aura działała.
+    return skill ? Math.round(skill.cooldownTicks * p.cooldownMult * p.auraCooldownMult) : 0;
   }
   /** Zasięg umiejętności stożkowej — render rysuje z tego podgląd. */
   skillRangeOf(p: Player, slot = 0): number {
@@ -1272,6 +1391,42 @@ export class World {
     return { x, y };
   }
 
+  /**
+   * Wypycha punkt POZA każdą żywą ścianę (`WallSkill`). Ściana to odcinek —
+   * traktujemy ją jak „gruby mur": kto podejdzie bliżej niż `thickness + radius`
+   * do odcinka, zostaje odepchnięty na jego bok. To jest realna kolizja: mobki
+   * (i gracz) nie przechodzą przez mur, tylko się o niego zatrzymują.
+   */
+  private pushOutOfWalls(x: number, y: number, radius: number): { x: number; y: number } {
+    for (const w of this.walls) {
+      if (!w.alive) continue;
+      const abx = w.x2 - w.x1;
+      const aby = w.y2 - w.y1;
+      const ab2 = abx * abx + aby * aby || 1;
+      // Najbliższy punkt na odcinku.
+      let t = ((x - w.x1) * abx + (y - w.y1) * aby) / ab2;
+      t = t < 0 ? 0 : t > 1 ? 1 : t;
+      const cx = w.x1 + abx * t;
+      const cy = w.y1 + aby * t;
+      const dx = x - cx;
+      const dy = y - cy;
+      const minD = w.thickness + radius;
+      const d2 = dx * dx + dy * dy;
+      if (d2 >= minD * minD) continue;
+      const d = Math.sqrt(d2);
+      if (d < 0.001) {
+        // Dokładnie na linii — pchamy wzdłuż normalnej odcinka.
+        const nlen = Math.sqrt(ab2);
+        x = cx + (-aby / nlen) * minD;
+        y = cy + (abx / nlen) * minD;
+      } else {
+        x = cx + (dx / d) * minD;
+        y = cy + (dy / d) * minD;
+      }
+    }
+    return { x, y };
+  }
+
   /* ── Gracze ───────────────────────────────────────────────────────────── */
 
   private savePrevPositions(): void {
@@ -1550,8 +1705,9 @@ export class World {
       p.y += dy * stepLen;
     }
 
-    // Kolizja z przeszkodami + granice świata.
-    const pushed = this.pushOutOfObstacles(p.x, p.y, C.PLAYER_RADIUS);
+    // Kolizja z przeszkodami + ścianami (`WallSkill`) + granice świata.
+    let pushed = this.pushOutOfObstacles(p.x, p.y, C.PLAYER_RADIUS);
+    pushed = this.pushOutOfWalls(pushed.x, pushed.y, C.PLAYER_RADIUS);
     p.x = Math.min(Math.max(pushed.x, C.PLAYER_RADIUS), C.WORLD_W - C.PLAYER_RADIUS);
     p.y = Math.min(Math.max(pushed.y, C.PLAYER_RADIUS), C.WORLD_H - C.PLAYER_RADIUS);
 
@@ -1612,6 +1768,7 @@ export class World {
     const teamMult =
       1 + (living.length - 1) * (WAVE_CONFIG.bossHpPercentPerExtraPlayer / 100);
     m.hp = def.hp * this.enemyHpMult * teamMult;
+    m.maxHp = m.hp;
     this.bossMaxHp = m.hp;
     m.speed = def.speed;
     m.state = 'chase';
@@ -1673,6 +1830,7 @@ export class World {
       m.prevX = m.x;
       m.prevY = m.y;
       m.hp = def.hp * this.enemyHpMult;
+      m.maxHp = m.hp;
       m.speed = this.rng.range(def.speedMin, def.speedMax);
       m.attackCooldown = def.ranged ? def.ranged.cooldownTicks : 0;
       m.state = 'chase';
@@ -1823,8 +1981,11 @@ export class World {
       m.x += (dx * m.speed * slow * advance + pushX * 60) * C.TICK_DT;
       m.y += (dy * m.speed * slow * advance + pushY * 60) * C.TICK_DT;
 
-      // Przeszkody blokują też najeźdźców (wypchnięcie = ślizganie po okręgu).
-      const pushed = this.pushOutOfObstacles(m.x, m.y, mobRadius);
+      // Przeszkody I ŚCIANY blokują najeźdźców (wypchnięcie = ślizganie po
+      // brzegu). Ściany to mur buildera — mobki się o niego zatrzymują, nie
+      // przechodzą przez niego. Bossów nie dotyczy (obsługiwane osobno).
+      let pushed = this.pushOutOfObstacles(m.x, m.y, mobRadius);
+      pushed = this.pushOutOfWalls(pushed.x, pushed.y, mobRadius);
       m.x = pushed.x;
       m.y = pushed.y;
     }
@@ -2065,6 +2226,7 @@ export class World {
     m.prevX = m.x;
     m.prevY = m.y;
     m.hp = def.hp * this.enemyHpMult;
+    m.maxHp = m.hp;
     m.speed = this.rng.range(def.speedMin, def.speedMax);
     m.attackCooldown = def.ranged ? def.ranged.cooldownTicks : 0;
     m.state = 'chase';
@@ -2225,6 +2387,7 @@ export class World {
         if (dx * dx + dy * dy <= reach * reach) {
           m.hp -= this.rollDamage(p, baseMeleeDamage, m);
           m.lastHitTick = this.tick;
+          this.applyOnHit(p, m);
           // Kill czyści `targetMob`, więc rykoszet strzela z zapamiętanego `idx`.
           if (m.hp <= 0) this.killMob(m, p);
           this.spawnMeleeRicochet(p, idx);
@@ -2245,10 +2408,25 @@ export class World {
       if (firstHit < 0) firstHit = i;
       m.hp -= this.rollDamage(p, baseMeleeDamage, m);
       m.lastHitTick = this.tick;
+      this.applyOnHit(p, m);
       if (m.hp <= 0) this.killMob(m, p);
     });
 
     if (firstHit >= 0) this.spawnMeleeRicochet(p, firstHit);
+  }
+
+  /**
+   * `onHit` (SCURRY): efekt doczepiony do KAŻDEGO auto-ataku, który zadał
+   * obrażenia. Leczenie-na-trafienie leci zawsze (nawet gdy cios dobija —
+   * ugryzłeś, więc się żywisz), status tylko na wroga, który przeżył (na trupa
+   * bez sensu). Dla każdej innej klasy `onHitStatus === -1` i `onHitLifesteal
+   * === 0`, więc to dwa tanie odczyty i wyjście — zero kosztu w gorącej pętli.
+   */
+  private applyOnHit(p: Player, m: Mob): void {
+    if (p.onHitLifesteal > 0) {
+      p.hp = Math.min(this.maxHpOf(p), p.hp + p.onHitLifesteal);
+    }
+    if (p.onHitStatus >= 0 && m.hp > 0) this.applyStatus(m, p.onHitStatus, p.index);
   }
 
   /**
@@ -2273,7 +2451,14 @@ export class World {
      * (wachlarz leci w kursor, a odbicia szukają następnego moba dopiero po
      * trafieniu). Tam podatność nadal nie wchodzi — to osobna zmiana.
      */
-    const dmg = target ? base * this.mobVulnerabilityOf(target) : base;
+    let dmg = target ? base * this.mobVulnerabilityOf(target) : base;
+    // CACKLE (hiena): EGZEKUCJA — im bardziej ranny CEL, tym mocniej go bijesz
+    // („laughs at the wounded"). Ułamek HP z `Mob.maxHp`: przy pełnym życiu
+    // bonus zerowy, przy bliskim śmierci pełny. Pociski bez celu (`target`
+    // pominięty) go nie łapią — liczą obrażenia, zanim poznają wroga.
+    if (target && p.executeToDamage > 0 && target.maxHp > 0) {
+      dmg *= 1 + Math.max(0, 1 - target.hp / target.maxHp) * p.executeToDamage;
+    }
     if (p.critChance <= 0) return dmg;
     if (this.rng.next() * 100 >= p.critChance) return dmg;
     p.lastCritTick = this.tick;
@@ -2382,6 +2567,12 @@ export class World {
       return;
     }
 
+    // Detonacja (RUPTURE): zjada zarazę z wrogów wokół i zamienia stacki w burst.
+    if (skill.kind === 'detonate') {
+      this.castDetonate(p, skill);
+      return;
+    }
+
     // Kanałowanie: gracz staje i sączy efekt, dopóki się nie ruszy (`stepChannels`).
     if (skill.kind === 'channel') {
       this.castChannel(p, skill, input, dirX, dirY);
@@ -2400,6 +2591,19 @@ export class World {
       p.empowerAttackSpeed = skill.attackSpeed;
       // Arcane Surge lisa to STRZAŁY, nie błyskawice — wygląd domyślny.
       this.setChainBuff(p, skill.name, skill.durationTicks, -1, skill.chain, '');
+      return;
+    }
+
+    // Transformacja: włącza FORMĘ na czas — zapisuje mnożniki i licznik, resztą
+    // (dokładaniem statów, wygaśnięciem) zajmuje się `stepAuras`.
+    if (skill.kind === 'transform') {
+      p.transformTicks = skill.durationTicks;
+      p.transformMaxTicks = skill.durationTicks;
+      p.transformDamageMult = skill.damageMult;
+      p.transformSpeedMult = skill.speedMult;
+      p.transformAttackSpeedMult = skill.attackSpeedMult;
+      p.transformArmorBonus = skill.armorBonus;
+      p.transformKillExtend = skill.killExtendTicks ?? 0;
       return;
     }
 
@@ -2438,7 +2642,9 @@ export class World {
     const baseDamage = this.meleeDamageOf(p) * skill.damageMult;
     const knockback = skill.knockback * p.knockbackMult;
     const statusIndex = skill.status ? statusIndexById(skill.status) : -1;
-    this.applyCone(p, p.x, p.y, dirX, dirY, range, baseDamage, skill.coneCos, knockback, statusIndex);
+    // FLING (wydra PLAYFUL): bonus przy zderzeniu = obrażenia zwarcia × `fling`.
+    const flingBonus = skill.fling ? this.meleeDamageOf(p) * skill.fling : 0;
+    this.applyCone(p, p.x, p.y, dirX, dirY, range, baseDamage, skill.coneCos, knockback, statusIndex, flingBonus);
 
     // SWIPE alfy: ten sam cios POWTARZA każdy sojuszniczy minion gracza,
     // ze swojej pozycji i w tym samym kierunku. Dlatego siła tej gałęzi
@@ -2447,7 +2653,7 @@ export class World {
     if (skill.packEcho) {
       for (const mi of this.minions) {
         if (!mi.alive || mi.ownerIndex !== p.index) continue;
-        this.applyCone(p, mi.x, mi.y, dirX, dirY, range, baseDamage, skill.coneCos, knockback, statusIndex);
+        this.applyCone(p, mi.x, mi.y, dirX, dirY, range, baseDamage, skill.coneCos, knockback, statusIndex, flingBonus);
         // SHATTER: jednostka rozpryskuje się zaraz po powtórzeniu ciosu.
         if (skill.consumesEcho) mi.alive = false;
       }
@@ -2481,7 +2687,7 @@ export class World {
   private applyCone(
     p: Player, ox: number, oy: number, dirX: number, dirY: number,
     range: number, baseDamage: number, coneCos: number, knockback: number,
-    statusIndex = -1,
+    statusIndex = -1, flingBonus = 0,
   ): void {
     this.hash.forEachNear(ox, oy, range + C.MOB_RADIUS_MAX, (i) => {
       const m = this.mobs[i];
@@ -2506,13 +2712,34 @@ export class World {
       // Bossa nie da się odepchnąć — inaczej dałoby się go zaganiać w róg.
       if (m.bossIndex >= 0) return;
       // Knockback z respektowaniem przeszkód — mob nie wyląduje w ścianie.
-      const kb = this.pushOutOfObstacles(
-        m.x + (dx / d) * knockback,
-        m.y + (dy / d) * knockback,
-        ENEMIES[m.defIndex].radius,
-      );
-      m.x = Math.min(Math.max(kb.x, C.MOB_RADIUS), C.WORLD_W - C.MOB_RADIUS);
-      m.y = Math.min(Math.max(kb.y, C.MOB_RADIUS), C.WORLD_H - C.MOB_RADIUS);
+      const intX = m.x + (dx / d) * knockback;
+      const intY = m.y + (dy / d) * knockback;
+      const kb = this.pushOutOfObstacles(intX, intY, ENEMIES[m.defIndex].radius);
+      const finalX = Math.min(Math.max(kb.x, C.MOB_RADIUS), C.WORLD_W - C.MOB_RADIUS);
+      const finalY = Math.min(Math.max(kb.y, C.MOB_RADIUS), C.WORLD_H - C.MOB_RADIUS);
+      // FLING (pinball wydry PLAYFUL): jeśli odepchnięty wróg WALI w innego
+      // wroga albo w ścianę/przeszkodę/granicę (lot przycięty względem zamiaru),
+      // obrywa bonus. Zderzenia z wrogiem szukamy w miejscu lądowania.
+      if (flingBonus > 0) {
+        const blocked = (finalX - intX) ** 2 + (finalY - intY) ** 2 > 4;
+        let hitMob = false;
+        this.hash.forEachNear(finalX, finalY, ENEMIES[m.defIndex].radius + C.MOB_RADIUS_MAX, (j) => {
+          if (hitMob) return;
+          const o = this.mobs[j];
+          if (!o.alive || o === m || o.bossIndex >= 0) return;
+          const rr = ENEMIES[m.defIndex].radius + ENEMIES[o.defIndex].radius;
+          const ex = o.x - finalX;
+          const ey = o.y - finalY;
+          if (ex * ex + ey * ey <= rr * rr) hitMob = true;
+        });
+        if (blocked || hitMob) {
+          m.hp -= this.rollDamage(p, flingBonus, m);
+          m.lastHitTick = this.tick;
+          if (m.hp <= 0) { this.killMob(m, p); return; }
+        }
+      }
+      m.x = finalX;
+      m.y = finalY;
     });
   }
 
@@ -2897,9 +3124,12 @@ export class World {
       }
     }
 
-    for (let i = 0; i < skill.count; i++) {
+    // `summonCountBonus` (talent R NIGHT TERROR) dokłada sztuk na rzut. Zero
+    // dla wszystkich innych klas, więc niczyjego summona nie rusza.
+    const count = skill.count + p.summonCountBonus;
+    for (let i = 0; i < count; i++) {
       // Kilka sztuk naraz rozstawiamy w wachlarzu, żeby nie stały w sobie.
-      const spread = skill.count > 1 ? (i - (skill.count - 1) / 2) * def.radius * 2.4 : 0;
+      const spread = count > 1 ? (i - (count - 1) / 2) * def.radius * 2.4 : 0;
       this.spawnMinion(def, p.index, tx - dirY * spread, ty + dirX * spread);
     }
   }
@@ -3057,6 +3287,43 @@ export class World {
     }
   }
 
+  /* ── Detonacja (`DetonateSkill`) ──────────────────────────────────────── */
+
+  /**
+   * RUPTURE (SWARM): zjada status `plague` z wrogów w promieniu WOKÓŁ GRACZA
+   * i zamienia liczbę stacków na jednorazowy burst. Wyśrodkowane na graczu —
+   * dowódca stoi w zarażonej hordzie i ją rozrywa. Obrażenia na wroga =
+   * obrażenia zwarcia gracza × `damagePerStackMult` × jego stacki; `range`
+   * gracza poszerza promień. Po detonacji zaraza z celu ZNIKA, żeby RUPTURE
+   * był realnym zbiorem stacków, a nie darmowym AoE co cooldown na wciąż
+   * zarażonym wrogu (zaraza i tak sama go zainfekuje ponownie).
+   */
+  private castDetonate(p: Player, skill: DetonateSkill): void {
+    const statusIndex = statusIndexById(skill.status);
+    if (statusIndex < 0) return;
+    const radius = skill.radius * p.rangeMult;
+    const r2 = radius * radius;
+    const perStack = this.meleeDamageOf(p) * skill.damagePerStackMult;
+    this.hash.forEachNear(p.x, p.y, radius + C.MOB_RADIUS_MAX, (i) => {
+      const m = this.mobs[i];
+      if (!m.alive) return;
+      const dx = m.x - p.x;
+      const dy = m.y - p.y;
+      if (dx * dx + dy * dy > r2) return;
+      let stacks = 0;
+      for (const st of m.statuses) {
+        if (st.defIndex === statusIndex) { stacks = st.stacks; break; }
+      }
+      if (stacks <= 0) return;
+      m.hp -= this.rollDamage(p, perStack * stacks, m);
+      m.lastHitTick = this.tick;
+      for (const st of m.statuses) {
+        if (st.defIndex === statusIndex) st.defIndex = -1;
+      }
+      if (m.hp <= 0) this.killMob(m, p);
+    });
+  }
+
   /* ── Kanałowanie (`ChannelSkill`) ─────────────────────────────────────── */
 
   private castChannel(
@@ -3097,31 +3364,57 @@ export class World {
 
   private channelTickEffect(p: Player, skill: ChannelSkill): void {
     const pay = skill.payload;
+    if (pay.type === 'rest') {
+      // HIBERNATE (niedźwiedź): sen leczy z ustalonej wartości na tyknięcie —
+      // czysty regen, zero obrażeń. Ruch przerywa kanał (patrz `stepChannels`),
+      // więc to sustain za cenę stania w miejscu.
+      p.hp = Math.min(this.maxHpOf(p), p.hp + pay.healPerTick);
+      return;
+    }
     if (pay.type === 'drain') {
-      // Sącz z WYBRANEGO celu, jeśli jest w zasięgu; inaczej z najbliższego.
-      // Placeholder zniknął — teraz mamy realną selekcję jednostki.
-      let m: Mob | null = null;
-      if (p.targetMob >= 0) {
-        const t = this.mobs[p.targetMob];
+      // MULTI-DRAIN: sączymy z `1 + drainExtraTargets` wrogów naraz (talent Q
+      // NIGHT TERROR), lecząc z SUMY zadanych obrażeń. Wybrany cel (unit-select)
+      // idzie na pierwszy ogień, resztę dopełniamy wrogami z zasięgu. `range`
+      // gracza poszerza promień sączenia.
+      const radius = pay.targetRadius * p.rangeMult;
+      const r2 = radius * radius;
+      const maxTargets = 1 + p.drainExtraTargets;
+      let hit = 0;
+      let healed = 0;
+      let picked = -1;
+      const ti = p.targetMob;
+      if (ti >= 0) {
+        const t = this.mobs[ti];
         if (t && t.alive) {
           const dx = t.x - p.x;
           const dy = t.y - p.y;
-          if (dx * dx + dy * dy <= pay.targetRadius * pay.targetRadius) m = t;
+          if (dx * dx + dy * dy <= r2) {
+            picked = ti;
+            const dmg = this.rollDamage(p, this.meleeDamageOf(p) * pay.damageMult, t);
+            t.hp -= dmg; t.lastHitTick = this.tick; healed += dmg; hit++;
+            if (t.hp <= 0) this.killMob(t, p);
+          }
         }
       }
-      if (!m) m = this.nearestMobTo(p.x, p.y, pay.targetRadius);
-      if (!m) return;
-      const dmg = this.rollDamage(p, this.meleeDamageOf(p) * pay.damageMult, m);
-      m.hp -= dmg;
-      m.lastHitTick = this.tick;
-      if (m.hp <= 0) this.killMob(m, p);
-      p.hp = Math.min(this.maxHpOf(p), p.hp + dmg * pay.healPct);
+      this.hash.forEachNear(p.x, p.y, radius + C.MOB_RADIUS_MAX, (i) => {
+        if (hit >= maxTargets || i === picked) return;
+        const m = this.mobs[i];
+        if (!m.alive) return;
+        const dx = m.x - p.x;
+        const dy = m.y - p.y;
+        if (dx * dx + dy * dy > r2) return;
+        const dmg = this.rollDamage(p, this.meleeDamageOf(p) * pay.damageMult, m);
+        m.hp -= dmg; m.lastHitTick = this.tick; healed += dmg; hit++;
+        if (m.hp <= 0) this.killMob(m, p);
+      });
+      if (healed > 0) p.hp = Math.min(this.maxHpOf(p), p.hp + healed * pay.healPct);
       return;
     }
     if (pay.type === 'vortex') {
-      // vortex: wsysa i rani wszystko wokół celowanego punktu.
-      const r2 = pay.radius * pay.radius;
-      this.hash.forEachNear(p.channelX, p.channelY, pay.radius + C.MOB_RADIUS_MAX, (i) => {
+      // vortex: wsysa i rani wszystko wokół celowanego punktu (`range` poszerza).
+      const radius = pay.radius * p.rangeMult;
+      const r2 = radius * radius;
+      this.hash.forEachNear(p.channelX, p.channelY, radius + C.MOB_RADIUS_MAX, (i) => {
         const m = this.mobs[i];
         if (!m.alive || m.bossIndex >= 0) return;
         const dx = p.channelX - m.x;
@@ -3143,11 +3436,13 @@ export class World {
     }
 
     // drainNova: pierścień grozy WOKÓŁ GRACZA — rani wszystkich (także bossa),
-    // leczy z SUMY zadanych obrażeń i nakłada status (fear). Silnik AoE-wampira.
+    // leczy z SUMY zadanych obrażeń i nakłada status (fear). `range` gracza
+    // poszerza pierścień (upgrade W w NIGHT TERROR). Silnik AoE-wampira.
     const statusIndex = pay.status ? statusIndexById(pay.status) : -1;
-    const novaR2 = pay.radius * pay.radius;
+    const novaRadius = pay.radius * p.rangeMult;
+    const novaR2 = novaRadius * novaRadius;
     let healed = 0;
-    this.hash.forEachNear(p.x, p.y, pay.radius + C.MOB_RADIUS_MAX, (i) => {
+    this.hash.forEachNear(p.x, p.y, novaRadius + C.MOB_RADIUS_MAX, (i) => {
       const m = this.mobs[i];
       if (!m.alive) return;
       const dx = m.x - p.x;
@@ -3223,15 +3518,14 @@ export class World {
   }
 
   private stepWalls(): void {
+    // Sam upkeep czasu życia. Kolizja (blokowanie ruchu) siedzi w
+    // `pushOutOfWalls`, wołanym z `movePlayer` i `moveMobsAndAttack` — mobki
+    // i gracz zatrzymują się o mur. Blokowanie POCISKÓW: jeszcze niepodpięte
+    // (pole `blocksProjectiles` czeka na wpięcie w `stepProjectiles`).
     for (const w of this.walls) {
       if (!w.alive) continue;
       if (--w.ttl <= 0) w.alive = false;
     }
-    // TODO(kolizja): tu (albo w `moveMobsAndAttack` i `stepProjectiles`) wepnij
-    // blokowanie ruchu — dla każdego żywego `w` sprawdź, czy krok jednostki
-    // z (prevX,prevY) do (x,y) przecina odcinek (użyj `pointSegDist2`), i jeśli
-    // tak, przytnij pozycję. Świadomie zostawione na osobno, bo naiwne
-    // wpięcie potrafi zaklinować mobki na ścianie — wymaga własnego benchu.
   }
 
   /** Nakłada status wszystkim wrogom leżącym na odcinku (grubość + promień). */
@@ -3438,6 +3732,7 @@ export class World {
       p.auraSpeedMult = 1;
       p.auraAttackSpeedMult = 1;
       p.auraArmorFlat = 0;
+      p.auraCooldownMult = 1;
     }
 
     // Wataha wchodzi w TĘ SAMĄ warstwę co aury: liczona od zera co tick,
@@ -3459,7 +3754,15 @@ export class World {
         // inaczej ostatni tick aury przepadałby.
         const timed = owner.auraTicks[ai] > 0;
         if (timed) owner.auraTicks[ai]--;
-        if (!timed && !owner.auraIds.includes(aura.id)) continue;
+        // AURA MASTER: aura slotu jest aktywna, DOPÓKI slot gotowy (cd<=0). Po
+        // wciśnięciu skill idzie na cooldown → jego pasywna aura gaśnie.
+        const slotIdx = owner.slotAuras.indexOf(aura.id);
+        const slotReady = slotIdx >= 0 && owner.skillCooldowns[slotIdx] <= 0;
+        if (!timed && !slotReady && !owner.auraIds.includes(aura.id)) continue;
+
+        // Promień aur AURA MASTERA (slotowych) rośnie z `rangeMult` gracza
+        // (drzewko `range`) — stąd RADIANCE na maksie sięga przez cały ekran.
+        const radius = slotIdx >= 0 ? aura.radius * owner.rangeMult : aura.radius;
 
         // PACK FURY rośnie z licznikiem właściciela; zwykłe aury mają `power` 1.
         const power = aura.scalesWithPack
@@ -3473,7 +3776,7 @@ export class World {
             if (ally.dead) continue;
             const dx = ally.x - owner.x;
             const dy = ally.y - owner.y;
-            if (dx * dx + dy * dy > aura.radius * aura.radius) continue;
+            if (dx * dx + dy * dy > radius * radius) continue;
             // Wataha wilka: premia za bycie OBOK KOGOŚ, nie za samotność.
             if (ally === owner && this.players.length > 1) continue;
             this.applyAuraBuff(ally, aura.allyBuff.kind, aura.allyBuff.value * power);
@@ -3487,23 +3790,26 @@ export class World {
             if (ally.dead) continue;
             const dx = ally.x - owner.x;
             const dy = ally.y - owner.y;
-            if (dx * dx + dy * dy > aura.radius * aura.radius) continue;
+            if (dx * dx + dy * dy > radius * radius) continue;
             ally.hp = Math.min(this.maxHpOf(ally), ally.hp + aura.allyHeal);
           }
         }
 
         if (aura.enemyStatus || aura.enemyDamage > 0) {
           const statusIndex = aura.enemyStatus ? statusIndexById(aura.enemyStatus) : -1;
-          this.hash.forEachNear(owner.x, owner.y, aura.radius + C.MOB_RADIUS_MAX, (i) => {
+          this.hash.forEachNear(owner.x, owner.y, radius + C.MOB_RADIUS_MAX, (i) => {
             const m = this.mobs[i];
             if (!m.alive) return;
-            const reach = aura.radius + ENEMIES[m.defIndex].radius;
+            const reach = radius + ENEMIES[m.defIndex].radius;
             const dx = m.x - owner.x;
             const dy = m.y - owner.y;
             if (dx * dx + dy * dy > reach * reach) return;
             if (statusIndex >= 0) this.applyStatus(m, statusIndex, owner.index);
             if (aura.enemyDamage > 0) {
-              m.hp -= aura.enemyDamage * this.mobVulnerabilityOf(m);
+              // Obrażenia aury skalują się statem obrażeń właściciela (`damageMult`),
+              // więc drzewko `strength` AURA MASTERA (RADIANCE) nadąża za falami —
+              // inaczej pole tłukłoby na sztywno i odpadło late-game.
+              m.hp -= aura.enemyDamage * owner.damageMult * this.mobVulnerabilityOf(m);
               m.lastHitTick = this.tick;
               if (m.hp <= 0) this.killMob(m, owner);
             }
@@ -3543,6 +3849,19 @@ export class World {
           ally.hp = Math.min(this.maxHpOf(ally), ally.hp + aura.allyHeal);
         }
       }
+    }
+
+    // TRANSFORMACJA (`TransformSkill`) — NA KOŃCU, na wierzch wszystkich aur:
+    // czasowa forma mnoży/dolicza staty i odlicza swój czas. Gdy `transformTicks`
+    // dojdzie do 0, po prostu przestajemy tu wchodzić — staty wracają same
+    // (ta sama zasada „licz od zera co tick", co reszta tej metody).
+    for (const p of this.players) {
+      if (p.transformTicks <= 0) continue;
+      p.transformTicks--;
+      p.auraDamageMult *= p.transformDamageMult;
+      p.auraSpeedMult *= p.transformSpeedMult;
+      p.auraAttackSpeedMult *= p.transformAttackSpeedMult;
+      p.auraArmorFlat += p.transformArmorBonus;
     }
   }
 
@@ -3603,6 +3922,11 @@ export class World {
         break;
       case 'armor':
         p.auraArmorFlat += value;
+        break;
+      case 'cooldown':
+        // Redukcja cooldownów z aury (TEMPO). Podłoga 0.4, żeby stos aur nie
+        // zszedł do zera/ujemnych wartości i nie zrobił skilli natychmiastowymi.
+        p.auraCooldownMult = Math.max(0.4, p.auraCooldownMult - value / 100);
         break;
       default:
         break;
@@ -3821,6 +4145,28 @@ export class World {
       if (!mi.alive) continue;
 
       if (def.attacks.length > 0) this.stepMinionAttack(mi, def, target);
+      if (def.spews) this.stepSpewer(mi, def);
+    }
+  }
+
+  /**
+   * SPAWNER (`MinionDef.spews`) — co `attackIntervalTicks` wypluwa jednostkę
+   * w LOSOWYM punkcie w promieniu wokół siebie. Silnik WULKANU maga magmy.
+   * `attackCooldown` jest tu wolne (spawner nie ma własnych ataków, więc
+   * `stepMinionAttack` go nie rusza), więc służy za licznik zrzutów. Losowanie
+   * z RNG symulacji = identyczny opad na każdym kliencie (determinizm).
+   */
+  private stepSpewer(mi: Minion, def: MinionDef): void {
+    if (mi.attackCooldown > 0) { mi.attackCooldown--; return; }
+    mi.attackCooldown = def.attackIntervalTicks;
+    const spews = def.spews!;
+    const meteor = minionById(spews.minionId);
+    if (!meteor) return;
+    for (let i = 0; i < spews.count; i++) {
+      // sqrt(rnd) rozkłada punkty RÓWNOMIERNIE po polu (bez zagęszczenia w środku).
+      const ang = this.rng.next() * Math.PI * 2;
+      const rad = Math.sqrt(this.rng.next()) * spews.radius;
+      this.spawnMinion(meteor, mi.ownerIndex, mi.x + Math.cos(ang) * rad, mi.y + Math.sin(ang) * rad);
     }
   }
 
@@ -3897,6 +4243,11 @@ export class World {
         target.hp -= def.contactDamage * (this.players[mi.ownerIndex]?.minionDamageMult ?? 1);
         target.lastHitTick = this.tick;
         if (target.hp <= 0) this.killMob(target, this.players[mi.ownerIndex]);
+        // Rój szczurów roznosi zarazę: ugryzienie nakłada `contactStatus`.
+        else if (def.contactStatus) {
+          const si = statusIndexById(def.contactStatus);
+          if (si >= 0) this.applyStatus(target, si, mi.ownerIndex);
+        }
       }
     }
   }
@@ -4163,6 +4514,13 @@ export class World {
     }
     this.aliveMobs--;
     this.kills++;
+    // WEREWOLF: zabójstwo w formie dolewa jej czasu (do sufitu). Dotyczy KAŻDEGO
+    // zabójstwa — także bossa — więc łańcuch rzezi trzyma wilkołaka w transie.
+    if (killer.transformTicks > 0 && killer.transformKillExtend > 0) {
+      killer.transformTicks = Math.min(
+        killer.transformMaxTicks, killer.transformTicks + killer.transformKillExtend,
+      );
+    }
     // PACK INSTINCT rośnie WYŁĄCZNIE za zabójstwa w grupie — samotne
     // polowanie nie buduje watahy. `allyCount` jest z tego ticku (stepPack).
     if (killer.packLeader && killer.allyCount > 0) {
@@ -4322,6 +4680,12 @@ export class World {
         break;
       case 'chainCount':
         p.chainCountBonus += value;
+        break;
+      case 'drainTargets':
+        p.drainExtraTargets += value;
+        break;
+      case 'summonCount':
+        p.summonCountBonus += value;
         break;
       case 'chainDamage':
         p.chainDamageMult += value / 100;
