@@ -17,7 +17,13 @@
 - [ ] Co przyciąga do kolejnego runu bez odblokowań — wybór trudności w lobby? (gdd.md 5.8)
 - [ ] Sci-fi bronie (bardzo sci-fi — kierunek potwierdzony, konkrety później)
 - [ ] Grafiki (na razie celowo kolory zamiast sprite'ów)
-- [ ] Więcej bossów (fale 5 i 10 obsadzone: Void Warden, Hive Queen — nowy boss to jeden plik w `src/sim/bosses/` + wpis w `index.ts` i `BOSS_WAVES`)
+- [~] Więcej bossów — **2026-08-22: fale 5/7/9/10 obsadzone** (Void Warden, PLASMA REAVER, HIVE COLOSSUS,
+      Hive Queen). Hive Queen (10) **wzmocniona**: HP 900→1250, +dmg, szybsze ataki, NOWA 3. faza „THE HIVE
+      CONSUMES ALL". Nowe bossy mają prymitywy startowe — do STROJENIA. (nowy boss = plik w `src/sim/bosses/`
+      + wpis w `index.ts` i `BOSS_WAVES`)
+- [ ] **Wybór mapy** — **2026-08-22: szkielet gotowy.** `src/sim/maps.ts` (1 realna `station` = obecna arena
+      + 3 `comingSoon`), `MapSelectScene` (klasa → mapa → gra), `GameScene.mapId` przekazany, retry zachowuje mapę.
+      ZOSTAJE: realne mapy zmieniające generację świata (przeszkody/rozmiar/pula wrogów) + wybór mapy w co-opie (host).
 - [ ] Muzyka (dźwięki są, muzyki nie ma — też do zsyntezowania, bez plików)
 
 ## Dalej (po decyzji o motywie)
@@ -122,3 +128,84 @@ Silnikowe „czasowniki" do zbudowania (każdy generyczny, reużywalny przez wie
 - [ ] **Strojenie do sprawdzenia w grze**: SONAR (możliwe za słaby — niska baza dmg bata),
       RAMPAGE (bench wygrał moc 9.85 — możliwe za mocny), BASTION (realny zysk dopiero w grze
       ręcznej — bot nie pilotuje buildera).
+
+---
+
+## EKWIPUNEK i SLOTY *(projekt 2026-08-22)*
+
+Gear **run-scoped** (jak romby — resetuje się co run, zero zapisu). Romby-konsumpcje
+**zostają, ale rzadsze**. Gear leci OBOK nich, do plecaka, zakładany na **ekranie w fazie
+`break`** (nie ma pauzy sim — break to bezpieczne okno bez mobów; equip = komenda w inpucie,
+jak `upgradePick`). Warstwa statów gear = **trzecia warstwa równolegle do aur** (`gearX`),
+przeliczana `recomputeGear` przy każdej zmianie ekwipunku; capy (`armorMax`, `critChanceMax`,
+`minCooldownMult`…) nakładane na SUMĘ baza+gear przy odczycie.
+
+**11 slotów:** broń główna (1H/2H), off-hand (tylko przy 1H), głowa, korpus, **spodnie**,
+pierścień ×2, amulet, buty, rękawice, pas. Broń 2H blokuje off-hand w zamian za większy blok statów.
+
+**Oś auto vs skill** (nowe `ItemKind`): `attackDamage` (tylko auto), `skillPower` (tylko skille),
+`strength` zostaje uniwersalny (rzadszy, cenniejszy).
+
+### Fazy wdrożenia
+- [x] ~~**Faza 0 — fundament danych:** `gearConfig.ts` (typy, `EQUIP_SLOTS`, `GearPiece`, pula
+      afixów per slot, `BAG_CAP`) + dopisać `attackDamage`/`skillPower` do `ItemKind`. Zero zachowania.~~
+      **ZROBIONE 2026-08-22:** nowy `src/sim/gearConfig.ts`, `ItemKind` += `attackDamage`/`skillPower`. tsc+eslint czyste.
+- [x] ~~**Faza 1 — oś auto/skill w pipeline:** pola `attackDamageMult`/`skillPowerMult`; mnożnik auto
+      w `applyMelee`; helper `skillDamageOf(p,mult)` i przepięcie ~13 miejsc skilli; obsługa w `applyEffect`.~~
+      **ZROBIONE 2026-08-22:** 12 skilli przez `skillDamageOf`, auto+rykoszet przez `attackDamageMult`,
+      atak miniona zostawiony na osi `minionDamage`. Regresje/determinizm bit-w-bit zachowane (mults=1).
+- [x] ~~**Faza 2 — warstwa statów gear:** pola `equipped[]`/`bag[]`/`gearX`; `recomputeGear`;
+      wpięcie w chokepointy read-time z capami na sumie; gear do `checksum`.~~
+      **ZROBIONE 2026-08-22:** hybryda — staty bez capa foldowane addytywnie (`gearFold`, odwracalne),
+      staty z capem równoległe `gearX` clampowane na sumie przy odczycie (armor/crit/regen/leech/thorns/cooldown).
+      Gear w `checksum`. Regresje bit-w-bit + ad-hoc recompute (fold rusza, odwracalność, cap) OK.
+- [x] ~~**Faza 3 — komendy equip:** `SimInput` += `equipFromBag`/`unequipSlot`/`dropBag`; obsługa w
+      `stepBreak` (dopasowanie slotu, reguła 2H↔off-hand, pojemność plecaka) → `recomputeGear`.~~
+      **ZROBIONE 2026-08-22:** +`equipToSlot` (auto-route lub celowany slot). Handler `handleGearCommands`/
+      `equipPiece`/`autoRouteSlot`/`stashInBag` w `stepBreak`, atomowy abort przy braku miejsca. Ad-hoc
+      20/20 (routing, 2H↔off-hand, pojemność, unequip, determinizm). Komendy jednorazowe (`withoutOneShots`).
+- [x] ~~**Faza 4 — drop gearu:** ground-item niesie `GearPiece`; `rollGearDrop()` (gated configiem);
+      pickup → plecak; `DROP_CONFIG` rozbity na gear/romb/nic (romby rzadsze).~~
+      **ZROBIONE 2026-08-22:** `Pickup.gear`, `dropGear`+`rollGearPiece` (PLACEHOLDER rolla → Faza 6),
+      `nextGearId` deterministyczny, split na zabójstwie (gear 2% osobno, romby z 8%→5%), pickup→plecak
+      (pełny = zostaje na ziemi), gear na ziemi świeci złotem. Ad-hoc 11/11. Wizualny verify zablokowany
+      (ukryty panel = zepsuty WebGL), ale bundler+sim czyste.
+- [ ] **Faza 5 — PRZEBUDOWA UI (rozszerzona 2026-08-22):** pełny HUD + ekwipunek + pauza/staty.
+      Kolejność: HUD → ekwipunek → pauza/staty. Dodatki w passie: damage numbers, vignette na niskim HP,
+      target frame, tooltipy skilli.
+  - [x] ~~**5a — graficzny HUD (LoL/Dota):** …~~ **ZROBIONE 2026-08-22:** moduł `Hud.ts` (pasek HP+pipsy
+        tarczy+odznaka lvl, pasek XP, ikony QWER+dash z radialnym cooldownem/ready/keybind, buffy z timerami,
+        zasób klasowy pack/forma/channel, górny strip fala/timer/mobki/kills). Tekstowy `hud` odchudzony do
+        dolnej linii (nag/celowanie/combo/sterowanie). EKSTRASY: damage numbers (`DamageNumbers.ts`, z delty HP),
+        vignette na niskim HP (`makeVignette`), target frame (nazwa+HP+statusy wroga), tooltipy skilli (hover).
+        tsc+lint czyste, moduły ładują się w kliencie. Wizualny pass do zrobienia, gdy panel odsłonięty.
+  - [x] ~~**5b — ekran ekwipunku (break):** …~~ **ZROBIONE 2026-08-22:** moduł `InventoryScreen.ts` (klawisz `I`):
+        11 slotów + siatka plecaka (6×4), klik w plecak → equip, klik w slot → unequip (komendy Fazy 3, tylko
+        w break), tooltipy afixów w kolorze rarity, znacznik 2H/typu, blokada inputu gdy otwarty, backdrop nie
+        łyka klików po zamknięciu. PLUS naprawiony feedback zebrania gearu: `sfx.gear()` + floating text w kolorze
+        rarity (`lastGearTick/Name/Rarity` na graczu). tsc+lint+determinizm+module-load czyste.
+        ZOSTAJE (nice-to-have): porównanie deltą względem założonego, drag&drop, celowany equip w konkretny slot.
+  - [x] ~~**5c — menu pauzy (ESC) + ekran statystyk (Brotato):** …~~ **ZROBIONE 2026-08-22:** moduł
+        `PauseScreen.ts` (ESC): pełny rozkład statów po kategoriach (Offense / Defense-Utility, efektywne wartości
+        z capami baza+gear + mechaniki klasowe + run) + lista założonego gearu w kolorach rarity, przyciski
+        Resume / Sound / Quit to Menu. `paused` mirroruje stan ekranu (Resume zamyka bez ESC). tsc+lint+module-load OK.
+        UWAGA: pauza zamraża lokalnie jak dotąd (w co-opie to stary problem — osobny temat).
+- [~] **Faza 6 — rarity + balans:** ROLL ZROBIONY 2026-08-22 (wyprzedził Fazę 5, bo domykaliśmy
+      „przy rollu"): 3 tiery Common/Rare/Epic (1/2/3 afixy, wagi 62/30/8), rolle wartości min-max
+      × `valueMult`, `RARITIES`/`GEAR_AFFIX_RANGE`, `rollRarityIndex`/`rollAffixValue`. Ad-hoc 6/6.
+      ZOSTAJE: **unikalne mechaniki legendarek → kolejny czat** (user ma pomysły, memory zapisane);
+      strojenie liczb w grze; źródło dropu.
+
+### Otwarte decyzje
+- [x] ~~**Rarity**~~ — **ZDECYDOWANE 2026-08-22:** 3 tiery Common/Rare/Epic, rolle min-max.
+- [~] **Unikalne mechaniki legendarek** — PROJEKT GOTOWY 2026-08-22 w `LegendaryEquipment.md`.
+      SCAFFOLDING + BATCH 1 ZROBIONE 2026-08-23: tier `Legendary` (rarity 3, waga 0 = tylko z bossów),
+      pole `unique` na `GearPiece`, rejestr `LEGENDARIES` (`gearConfig.ts`). Drop `rollLegendary` — TYLKO z bossa,
+      pod klasę+wybrany spec zabójcy, BEZ DUBLI (equipped+bag). `Player.uniqueEffects` przeliczane w `recomputeGear`
+      (ODWRACALNE); sim czyta `uniqueEffects.has(id)`. 3 efekty: stormfang (wolf-thunder ricochet+3),
+      lightspeed-greaves (hog-sonic spd→dmg ×2), heart-of-berserker (bear-rampage missing+0.25). Ad-hoc 14/14.
+      ZOSTAJE: ~57 pozostałych (wpis + hook), `accumulateGearAffix` += afixy minion/chain, prymitywy
+      `ward`/`shield`/`fling` + `blocksProjectiles`, specy `comingSoon`, drop multi-boss (dubel na ziemi).
+- [ ] **Źródło dropu gearu** — bossy/moby/gwarant z bossa? (dziś: 2% z każdego moba)
+- [ ] **Off-hand** — druga broń (dual-wield, +auto) czy focus (+skill)?
+- [ ] **Strojenie liczb** — wagi rarity, zakresy afixów, szanse dropu (placeholdery w `gearConfig.ts`).

@@ -3,7 +3,17 @@ import { SpatialHash } from './spatialHash';
 import { type ClassDef } from './classes';
 import { CONTACT_CONFIG, ENEMIES, type EnemyDef } from './enemies';
 import { DROP_CONFIG, ITEM_CAPS, ITEMS, type ItemKind } from './itemsConfig';
-import { BOSS_WAVES, UPGRADES, WAVE_CONFIG, WAVE_DURATION_TICKS } from './wavesConfig';
+import {
+  BAG_CAP, EQUIP_SLOTS, LEGENDARY_RARITY, OFFHAND_SLOT_INDEX, WEAPON_SLOT_INDEX,
+  GEAR_AFFIX_RANGE, GEAR_DROP, GEAR_SLOT_TYPES, GOLD_PER_BOSS, GOLD_PER_KILL,
+  GEAR_PRICE_MULT, RARITIES, SELL_VALUE, SHOP_REROLL_COST, SHOP_SIZE, UPGRADE_PRICE,
+  SLOT_AFFIX_POOL,
+  acceptsPiece, blocksOffhand, emptyGearFold, equipSlotType, legendariesFor,
+  type GearAffix, type GearFold, type GearPiece, type GearRarity,
+  type GearSlotType, type RarityDef,
+} from './gearConfig';
+import { UPGRADES, WAVE_CONFIG, WAVE_DURATION_TICKS, type UpgradeDef } from './wavesConfig';
+import { DEFAULT_MAP_ID, mapById } from './maps';
 import { BOSSES, bossById, type BossAttack, type BossDef } from './bosses';
 import type { MetaEffectKind } from './metaConfig';
 import {
@@ -24,6 +34,10 @@ import {
   ALPHA_PACK, branchesFor, PROGRESSION, talentSlotsFor, xpForLevel, xpPerWaveCleared,
 } from './talentsConfig';
 import * as C from './constants';
+
+/** Indeksy statusów używane przez legendarki — policzone raz (findIndex nie w pętli). */
+const STATUS_GRAVITY_DRAG = statusIndexById('gravity-drag');
+const STATUS_STUN = statusIndexById('stun');
 
 /*
  *  ARCHITEKTURA (fundament pod co-op 1-8 graczy):
@@ -91,6 +105,24 @@ export interface SimInput {
    * rozjadą się o statystyki gracza.
    */
   talentPick: number;
+  /**
+   * KOMENDY EKWIPUNKU (obsługiwane TYLKO w przerwie, `stepBreak`). Jak `talentPick`
+   * — idą przez input, nie przez metodę z UI, bo w co-opie każdy klient musi wykonać
+   * ten sam ruch w tym samym ticku, inaczej gear (a więc staty) się rozjedzie.
+   * Wszystkie jednorazowe: -1 = brak. UI wysyła jedną akcję na interakcję.
+   */
+  /** Indeks części w plecaku do ZAŁOŻENIA (-1 = brak). */
+  equipFromBag: number;
+  /** Docelowa pozycja ekwipunku dla `equipFromBag` (-1 = auto: pierwszy pasujący slot). */
+  equipToSlot: number;
+  /** Pozycja ekwipunku do ZDJĘCIA (do plecaka; -1 = brak). */
+  unequipSlot: number;
+  /** Indeks części w plecaku do SPRZEDAŻY (-1 = brak). */
+  dropBag: number;
+  /** Indeks pozycji sklepu do KUPIENIA (-1 = brak). Tylko w przerwie. */
+  shopBuy: number;
+  /** Reroll oferty sklepu za złoto (tylko w przerwie). */
+  shopReroll: boolean;
 }
 
 /** Pusty input — dla graczy, których dane jeszcze nie dotarły albo którzy padli. */
@@ -98,6 +130,8 @@ export const EMPTY_INPUT: SimInput = {
   targetX: 0, targetY: 0, hasTarget: false,
   skillCast: -1, aimX: 0, aimY: 0,
   dash: false, debugSpawn: false, upgradePick: -1, talentPick: -1,
+  equipFromBag: -1, equipToSlot: -1, unequipSlot: -1, dropBag: -1,
+  shopBuy: -1, shopReroll: false,
 };
 
 /**
@@ -108,7 +142,11 @@ export const EMPTY_INPUT: SimInput = {
  * w talent albo jedno wciśnięcie klawisza zostałoby policzone dwa razy.
  */
 export function withoutOneShots(input: SimInput): SimInput {
-  return { ...input, skillCast: -1, dash: false, upgradePick: -1, talentPick: -1 };
+  return {
+    ...input, skillCast: -1, dash: false, upgradePick: -1, talentPick: -1,
+    equipFromBag: -1, equipToSlot: -1, unequipSlot: -1, dropBag: -1,
+    shopBuy: -1, shopReroll: false,
+  };
 }
 
 /** Faza runu — maszyna stanów struktury rozgrywki. */
@@ -298,11 +336,34 @@ export interface Projectile {
 /** Item leżący na ziemi (drop z moba), czeka na zebranie albo despawn. */
 export interface Pickup {
   alive: boolean;
-  /** Indeks w ITEMS (itemsConfig.ts). */
+  /** Indeks w ITEMS (itemsConfig.ts) dla romba; -1 gdy slot niesie GEAR. */
   defIndex: number;
+  /**
+   * Część ekwipunku, gdy to drop gearu (inaczej null = romb). Zbierany trafia
+   * do plecaka, nie w `applyEffect`. Referencja zwalniana przy zebraniu/despawnie.
+   */
+  gear: GearPiece | null;
   x: number;
   y: number;
   ttl: number;
+}
+
+/**
+ * Pozycja w SKLEPIE runowym (przerwa, Brotato). Stan symulacji — generowany
+ * deterministycznie na starcie przerwy; kupno/reroll to komendy w inpucie.
+ */
+export interface ShopOffer {
+  kind: 'gear' | 'upgrade';
+  price: number;
+  sold: boolean;
+  /** kind==='gear': gotowa część (kupno → do plecaka). */
+  gear: GearPiece | null;
+  /** kind==='upgrade': efekt romba/boosta (przez `applyEffect`, jak karta). */
+  upgradeKind: ItemKind;
+  upgradeValue: number;
+  /** Nazwa i kolor do wyświetlenia w panelu. */
+  label: string;
+  color: number;
 }
 
 /**
@@ -434,6 +495,43 @@ export interface Player {
   attackSpeedMult: number;
   rangeMult: number;
   damageMult: number;
+  /**
+   * OŚ „auto vs skill" (gear, `gearConfig.ts`). `damageMult` (statek `strength`)
+   * jest UNIWERSALNY i siedzi w `meleeDamageOf`, więc karmi oba kanały. Te dwa
+   * rozdzielają je NA WIERZCHU wspólnej bazy:
+   *  - `attackDamageMult` mnoży TYLKO auto-atak (`applyMelee`) i jego proc
+   *    (rykoszet Thunder Fang),
+   *  - `skillPowerMult` mnoży TYLKO obrażenia umiejętności (przez `skillDamageOf`).
+   * Oba startują z 1 (brak wpływu), więc dopóki nic ich nie podnosi, balans stoi.
+   * Ataki jednostek zostają na osi `minionDamageMult` — nie dotyka ich żaden z tych.
+   */
+  attackDamageMult: number;
+  skillPowerMult: number;
+  /* ── WARSTWA GEAR (ekwipunek, run-scoped; `gearConfig.ts`) ─────────────────
+   * Trzecia warstwa statów, przeliczana `recomputeGear` przy KAŻDEJ zmianie
+   * ekwipunku (nie co tick — inaczej niż aury; equip jest rzadki). Dwa mechanizmy:
+   *  - staty BEZ capa foldują się ADDYTYWNIE do pól efektywnych powyżej
+   *    (`damageMult`, `rangeMult`, …); `gearFold` trzyma aktualny wkład, żeby
+   *    dało się go cofnąć przy zmianie ekwipunku,
+   *  - staty Z capem mają RÓWNOLEGŁE `gearX`, łączone i clampowane na SUMIE
+   *    (baza+gear) dopiero przy odczycie — clamp przy zapisie gubiłby informację
+   *    potrzebną do cofnięcia. Capy te same co dla rombów (`ITEM_CAPS`). */
+  equipped: (GearPiece | null)[];
+  bag: (GearPiece | null)[];
+  gearFold: GearFold;
+  gearArmorFlat: number;
+  gearCritChance: number;
+  gearRegen: number;
+  gearLeech: number;
+  gearThorns: number;
+  /** Mnożnik cooldownu z gearu (<1 = szybciej); łączony `× cooldownMult` z podłogą. */
+  gearCooldownMult: number;
+  /**
+   * Aktywne UNIKALNE efekty legendarek (id z `LEGENDARIES`). Przeliczane od zera
+   * przy każdej zmianie ekwipunku (`recomputeGear`), więc odwracalne. Sim sprawdza
+   * `uniqueEffects.has('id')` w hookach — odpowiednik talentowych `grants*`.
+   */
+  uniqueEffects: Set<string>;
   /**
    * SONIC: ile NADWYŻKI prędkości zamienia się w obrażenia. 0 = brak (każda
    * inna klasa). >0 = obrażenia gracza rosną wraz z `speedMult × auraSpeedMult`,
@@ -678,14 +776,22 @@ export interface Player {
   kills: number;
   itemCounts: number[];
   totalItemsCollected: number;
+  /** Złoto runowe (sklep w przerwie) — z zabójstw i sprzedaży; reset co run. */
+  gold: number;
   lastPickupTick: number;
   lastPickupDefIndex: number;
+  /** Event zebrania GEARU (render pokazuje floating text + dźwięk). Kosmetyka. */
+  lastGearTick: number;
+  lastGearName: string;
+  lastGearRarity: number;
   lastShieldTick: number;
   pickedUpgrades: number[];
   /** Ulepszenia wylosowane temu graczowi na aktualną przerwę. */
   upgradeChoices: number[];
   /** Czy gracz podjął już decyzję w tej przerwie. */
   hasPickedThisBreak: boolean;
+  /** Oferta sklepu na aktualną przerwę (kupno/reroll za złoto). */
+  shopOffers: ShopOffer[];
 
   /* ── Progresja w runie (gdd.md 5.8) — znika razem z runem ──────────── */
   level: number;
@@ -760,33 +866,53 @@ export class World {
   readonly obstacles: Obstacle[] = [];
 
   aliveMobs = 0;
+  /**
+   * Kolejny `id` instancji części gearu. Rośnie deterministycznie z każdą
+   * zrollowaną częścią (`rollGearPiece`), więc jest identyczny na wszystkich
+   * klientach. Wchodzi do `checksum` przez `equipped`/`bag`.
+   */
+  private nextGearId = 1;
   /** Ilu wrogów każdego typu żyje (indeks = ENEMIES) — pilnuje limitów maxAlive. */
   readonly aliveByType: number[] = ENEMIES.map(() => 0);
   /** Łączny licznik zabitych mobków (wszyscy gracze razem). */
   kills = 0;
 
   /* ── Boss ─────────────────────────────────────────────────────────────── */
-  /** Indeks moba będącego bossem (-1 = brak bossa na arenie). */
-  bossMobIndex = -1;
+  /**
+   * Sloty mobków, w które wstawiono bossów tej fali (może być kilku naraz).
+   * `bossMobIndex`/`bossDefeated` są GETTERAMI liczonymi z tej listy — nie ma
+   * osobnej flagi do zerowania, bo martwego bossa poznajemy po `bossIndex < 0`
+   * (zwolniony slot przejmowany przez zwykłego moba i tak ma `bossIndex = -1`).
+   */
+  bossMobIndices: number[] = [];
+  /** Czy bossowie tej fali zostali już przyzwani (spawn raz na falę). */
+  bossesSpawned = false;
   /** HP startowe bossa — render rysuje z tego pasek. */
   bossMaxHp = 0;
-  /**
-   * Boss tej fali został pokonany.
-   *
-   * Osobna flaga, bo `bossMobIndex` jest zerowany w chwili śmierci: pool
-   * mobków natychmiast oddaje zwolniony slot nowemu wrogowi, a wskaźnik
-   * na stary slot sprawiał, że świat brał przypadkowego aliena za bossa
-   * (`BOSSES[-1]` → wyjątek w renderze i fala, która nigdy się nie kończy).
-   */
-  bossDefeated = false;
   /** Tick ostatniej zmiany fazy bossa i jej komunikat (dla renderu). */
   bossPhaseTick = -1;
   bossPhaseAnnounce = '';
+  /** Harmonogram bossów tej mapy (fala → lista id). Ustawiany w konstruktorze. */
+  private readonly bossWaves: Record<number, string[]>;
 
+  /** Pierwszy ŻYWY boss tej fali (dla paska HP) albo null. */
   get boss(): Mob | null {
-    if (this.bossMobIndex < 0) return null;
-    const m = this.mobs[this.bossMobIndex];
-    return m.alive ? m : null;
+    const i = this.bossMobIndex;
+    return i >= 0 ? this.mobs[i] : null;
+  }
+
+  /** Slot pierwszego żywego bossa (żywego = `alive && bossIndex >= 0`) albo -1. */
+  get bossMobIndex(): number {
+    for (const i of this.bossMobIndices) {
+      const m = this.mobs[i];
+      if (m && m.alive && m.bossIndex >= 0) return i;
+    }
+    return -1;
+  }
+
+  /** Wszyscy bossowie fali polegli (przyzwani i żaden nie żyje). */
+  get bossDefeated(): boolean {
+    return this.bossesSpawned && this.bossMobIndex < 0;
   }
 
   get bossDef(): BossDef | null {
@@ -794,9 +920,9 @@ export class World {
     return b ? BOSSES[b.bossIndex] : null;
   }
 
-  /** Czy na bieżącej fali ma pojawić się boss. */
+  /** Czy na bieżącej fali mają pojawić się bossowie (wg harmonogramu mapy). */
   get isBossWave(): boolean {
-    return BOSS_WAVES[this.wave] !== undefined;
+    return this.bossWaves[this.wave] !== undefined;
   }
 
   /* ── Struktura runu: fale i przerwy (wavesConfig.ts) ──────────────────── */
@@ -814,8 +940,12 @@ export class World {
    * @param classes     klasa każdego gracza (długość = liczba graczy)
    * @param metaBonuses bonusy meta osobno dla każdego gracza
    */
-  constructor(seed: number, classes: ClassDef[], metaBonuses: MetaBonus[][] = []) {
+  constructor(
+    seed: number, classes: ClassDef[], metaBonuses: MetaBonus[][] = [],
+    mapId: string = DEFAULT_MAP_ID,
+  ) {
     this.rng = new Rng(seed);
+    this.bossWaves = mapById(mapId)?.bossWaves ?? {};
 
     classes.forEach((cls, i) => {
       const p = this.createPlayer(i, cls);
@@ -832,6 +962,10 @@ export class World {
         else this.applyEffect(p, bonus.kind, bonus.value);
       }
       p.hp = this.maxHpOf(p);
+      // Ustala niezmiennik „pola efektywne zawierają wkład gearu" od t=0.
+      // Ekwipunek startowy jest pusty, więc to no-op — ale trzyma jeden punkt
+      // prawdy dla warstwy gear (i za darmo obejmie przyszły gear startowy).
+      this.recomputeGear(p);
       this.players.push(p);
     });
 
@@ -865,7 +999,7 @@ export class World {
       });
     }
     for (let i = 0; i < DROP_CONFIG.maxGroundItems; i++) {
-      this.pickups.push({ alive: false, defIndex: 0, x: 0, y: 0, ttl: 0 });
+      this.pickups.push({ alive: false, defIndex: 0, gear: null, x: 0, y: 0, ttl: 0 });
     }
     for (let i = 0; i < HOOK_POOL_SIZE; i++) {
       this.hooks.push({
@@ -900,6 +1034,12 @@ export class World {
       meleeCooldown: cls.meleeIntervalTicks, lastMeleeTick: -1,
       lastSkillTick: -1, lastSkillDirX: 1, lastSkillDirY: 0,
       armorFlat: 0, speedMult: 1, attackSpeedMult: 1, rangeMult: 1, damageMult: 1,
+      attackDamageMult: 1, skillPowerMult: 1,
+      equipped: EQUIP_SLOTS.map(() => null),
+      bag: Array.from({ length: BAG_CAP }, () => null),
+      gearFold: emptyGearFold(),
+      gearArmorFlat: 0, gearCritChance: 0, gearRegen: 0, gearLeech: 0, gearThorns: 0,
+      gearCooldownMult: 1, uniqueEffects: new Set(),
       speedToDamage: 0, hpToDamage: 0, lostHpToDamage: 0, executeToDamage: 0,
       shieldCharges: 0, regenPerSec: 0, maxHpBonus: 0, cooldownMult: 1,
       leechHealPerKill: 0, magnetBonus: 0, knockbackMult: 1, thornsDamage: 0,
@@ -927,9 +1067,10 @@ export class World {
       auraDamageMult: 1, auraSpeedMult: 1, auraAttackSpeedMult: 1, auraArmorFlat: 0,
       auraCooldownMult: 1, slotAuras: [],
       critChance: 0, critDamageMult: 2, lastCritTick: -1,
-      kills: 0, itemCounts: ITEMS.map(() => 0), totalItemsCollected: 0,
+      kills: 0, itemCounts: ITEMS.map(() => 0), totalItemsCollected: 0, gold: 0,
       lastPickupTick: -1, lastPickupDefIndex: -1, lastShieldTick: -1,
-      pickedUpgrades: [], upgradeChoices: [], hasPickedThisBreak: false,
+      lastGearTick: -1, lastGearName: '', lastGearRarity: 0,
+      pickedUpgrades: [], upgradeChoices: [], hasPickedThisBreak: false, shopOffers: [],
       level: 1, xp: 0, talentPoints: 0,
       talentRanks: talentSlotsFor(cls.id).map(() => 0),
       spentPerBranch: branchesFor(cls.id).map(() => 0),
@@ -1062,9 +1203,11 @@ export class World {
     // w obrażenia. `max(0, …)` — spowolnienie nigdy nie zbija poniżej bazy. To
     // przez tę metodę liczą się roll, spin i auto-atak, więc jeden hook skaluje
     // całą gałąź prędkością.
-    if (p.speedToDamage > 0) {
+    // LIGHTSPEED GREAVES (legendarka hog-sonic): nadwyżka prędkości liczy się PODWÓJNIE.
+    const s2d = p.uniqueEffects.has('lightspeed-greaves') ? p.speedToDamage * 2 : p.speedToDamage;
+    if (s2d > 0) {
       const speedFactor = p.speedMult * p.auraSpeedMult;
-      dmg *= 1 + Math.max(0, speedFactor - 1) * p.speedToDamage;
+      dmg *= 1 + Math.max(0, speedFactor - 1) * s2d;
     }
     // CURL: nadwyżka HP nad bazę klasy wchodzi w obrażenia — tank bije tym
     // mocniej, im jest twardszy. Ten sam wzorzec co SONIC, tylko oś to życie.
@@ -1075,10 +1218,22 @@ export class World {
     // pasek, tym mocniejszy cios (berserker na krawędzi). Wyleczenie się zdejmuje
     // premię, więc gałąź sama reguluje: bądź nisko, ale nie martwy.
     if (p.lostHpToDamage > 0) {
-      const missing = 1 - p.hp / this.maxHpOf(p);
+      // HEART OF THE BERSERKER (legendarka bear-rampage): licz jak przy 25% mniej HP.
+      let missing = 1 - p.hp / this.maxHpOf(p);
+      if (p.uniqueEffects.has('heart-of-berserker')) missing = Math.min(1, missing + 0.25);
       dmg *= 1 + Math.max(0, missing) * p.lostHpToDamage;
     }
     return dmg;
+  }
+  /**
+   * Obrażenia UMIEJĘTNOŚCI: wspólna baza (`meleeDamageOf`) × mnożnik danego
+   * skilla × oś `skillPower`. Jeden lejek dla WSZYSTKICH skilli — dzięki temu
+   * `skillPowerMult` wpina się w jednym miejscu (i tu wpięłaby się każda przyszła
+   * globalna modyfikacja obrażeń umiejętności). Auto-atak NIE idzie przez ten
+   * lejek — ma własną oś `attackDamageMult` w `applyMelee`.
+   */
+  skillDamageOf(p: Player, mult: number): number {
+    return this.meleeDamageOf(p) * mult * p.skillPowerMult;
   }
   meleeIntervalOf(p: Player): number {
     return Math.max(
@@ -1099,7 +1254,8 @@ export class World {
     const skill = this.skillOf(p, slot);
     // `auraCooldownMult` < 1 = redukcja z aury TEMPO (AURA MASTER) — liczona
     // w chwili castu, więc krótszy cooldown dostajesz, gdy aura działała.
-    return skill ? Math.round(skill.cooldownTicks * p.cooldownMult * p.auraCooldownMult) : 0;
+    const cd = Math.max(ITEM_CAPS.minCooldownMult, p.cooldownMult * p.gearCooldownMult);
+    return skill ? Math.round(skill.cooldownTicks * cd * p.auraCooldownMult) : 0;
   }
   /** Zasięg umiejętności stożkowej — render rysuje z tego podgląd. */
   skillRangeOf(p: Player, slot = 0): number {
@@ -1175,11 +1331,13 @@ export class World {
 
     const inputOf = (p: Player): SimInput => inputs[p.index] ?? EMPTY_INPUT;
 
-    // Talenty wydaje się kiedy się chce — także w środku fali. W co-opie nie
-    // ma pauzy, więc czekanie na przerwę oznaczałoby granie bez awansów.
+    // Talenty i ekwipunek ogarnia się kiedy się chce — także w środku fali.
+    // W co-opie nie ma pauzy, więc czekanie na przerwę oznaczałoby granie bez
+    // awansów i bez założonego lootu. Deterministyczne (komendy w inpucie).
     for (const p of this.players) {
       const pick = inputOf(p).talentPick;
       if (pick >= 0) this.trySpendTalent(p, pick);
+      this.handleGearCommands(p, inputOf(p));
     }
 
     if (this.phase === 'break') {
@@ -1254,6 +1412,9 @@ export class World {
           p.hasPickedThisBreak = true;
         }
       }
+
+      // Sklep — kupno/reroll za złoto (tylko w przerwie). Nie bramkuje startu fali.
+      this.handleShop(p, input);
     }
     this.stepPickups();
     for (const p of this.players) {
@@ -1292,7 +1453,10 @@ export class World {
       this.gainXp(p, this.waveXp);
       p.hasPickedThisBreak = p.dead;
       p.upgradeChoices = [];
-      if (!p.dead) this.rollUpgradeChoices(p);
+      if (!p.dead) {
+        this.rollUpgradeChoices(p);
+        this.rollShop(p);
+      }
     }
   }
 
@@ -1327,10 +1491,10 @@ export class World {
     this.wave++;
     this.phase = 'wave';
     this.waveTicksLeft = this.currentWaveDurationTicks;
-    // Nowa fala = nowy boss (albo jego brak).
-    this.bossMobIndex = -1;
+    // Nowa fala = nowi bossowie (albo ich brak).
+    this.bossMobIndices = [];
+    this.bossesSpawned = false;
     this.bossMaxHp = 0;
-    this.bossDefeated = false;
     for (const p of this.players) {
       p.upgradeChoices = [];
       p.hasPickedThisBreak = false;
@@ -1569,7 +1733,7 @@ export class World {
    */
   private dashImpact(p: Player, dash: DashDef): void {
     p.lastDashImpactTick = this.tick;
-    const damage = this.meleeDamageOf(p) * dash.impactDamageMult;
+    const damage = this.skillDamageOf(p, dash.impactDamageMult);
     const knockback = dash.impactKnockback * p.knockbackMult;
     // Promień skalowany talentami — to główna oś wzrostu buildu skoczka.
     const radius = this.dashImpactRadiusOf(p, dash);
@@ -1619,7 +1783,7 @@ export class World {
     const radius = ride.hitRadius * p.rangeMult;
     this.applyCone(
       p, p.x, p.y, p.facingX, p.facingY,
-      radius, this.meleeDamageOf(p) * ride.damageMult, -1,
+      radius, this.skillDamageOf(p, ride.damageMult), -1,
       ride.knockback * p.knockbackMult,
       ride.status ? statusIndexById(ride.status) : -1,
     );
@@ -1779,7 +1943,7 @@ export class World {
     m.lastHitTick = -100;
     m.alive = true;
     this.aliveMobs++;
-    this.bossMobIndex = slot;
+    this.bossMobIndices.push(slot);
     this.bossPhaseTick = this.tick;
     this.bossPhaseAnnounce = def.phases[0].announce;
   }
@@ -1788,11 +1952,13 @@ export class World {
     const living = this.livingPlayers;
     if (living.length === 0) return;
 
-    // Boss pojawia się raz, na początku swojej fali.
-    const bossId = BOSS_WAVES[this.wave];
-    // `bossDefeated` chroni przed ponownym przyzwaniem tego samego bossa
-    // po jego śmierci — bez tego wyzerowany `bossMobIndex` byłby zaproszeniem.
-    if (bossId && this.bossMobIndex < 0 && !this.bossDefeated) this.spawnBoss(bossId);
+    // Bossowie pojawiają się RAZ, na początku swojej fali (może być ich kilku).
+    // `bossesSpawned` chroni przed ponownym przyzwaniem po ich śmierci.
+    const bossIds = this.bossWaves[this.wave];
+    if (bossIds && !this.bossesSpawned) {
+      for (const id of bossIds) this.spawnBoss(id);
+      this.bossesSpawned = true;
+    }
 
     const elapsedSeconds = this.tick * C.TICK_DT;
     // Liczba wrogów rośnie z falą ORAZ z liczbą graczy — inaczej co-op byłby
@@ -1998,8 +2164,10 @@ export class World {
    * (src/sim/bosses/) — tutaj tylko wykonujemy to, co tam zapisane.
    */
   private stepBoss(m: Mob, def: BossDef, target: Player): void {
-    // Wejście w kolejną fazę, gdy HP spadnie poniżej progu.
-    const frac = this.bossMaxHp > 0 ? m.hp / this.bossMaxHp : 1;
+    // Wejście w kolejną fazę, gdy HP spadnie poniżej progu. Liczymy z WŁASNEGO
+    // maxHp moba, nie ze wspólnego `bossMaxHp` — przy kilku bossach każdy fazuje
+    // niezależnie na swoim pasku.
+    const frac = m.maxHp > 0 ? m.hp / m.maxHp : 1;
     for (let i = def.phases.length - 1; i > m.phaseIndex; i--) {
       if (frac <= def.phases[i].hpFraction) {
         m.phaseIndex = i;
@@ -2371,7 +2539,9 @@ export class World {
     p.lastMeleeTick = this.tick;
 
     const range = this.meleeRangeOf(p);
-    const baseMeleeDamage = this.meleeDamageOf(p);
+    // Oś „pod auto": `attackDamageMult` mnoży TYLKO cios podstawowy (i jego
+    // rykoszet), nie skille. Skille jadą przez `skillDamageOf`.
+    const baseMeleeDamage = this.meleeDamageOf(p) * p.attackDamageMult;
 
     // FOCUS (unit-select): z wybranym celem auto-atak bije WYŁĄCZNIE jego — o ile
     // jest w zasięgu (poza zasięgiem cios idzie w próżnię, bo gracz właśnie do
@@ -2427,6 +2597,10 @@ export class World {
       p.hp = Math.min(this.maxHpOf(p), p.hp + p.onHitLifesteal);
     }
     if (p.onHitStatus >= 0 && m.hp > 0) this.applyStatus(m, p.onHitStatus, p.index);
+    // NEUTRON CORE (legendarka bear-gravity): auto-atak nakłada GRAVITY DRAG.
+    if (m.hp > 0 && STATUS_GRAVITY_DRAG >= 0 && p.uniqueEffects.has('neutron-core')) {
+      this.applyStatus(m, STATUS_GRAVITY_DRAG, p.index);
+    }
   }
 
   /**
@@ -2459,8 +2633,24 @@ export class World {
     if (target && p.executeToDamage > 0 && target.maxHp > 0) {
       dmg *= 1 + Math.max(0, 1 - target.hp / target.maxHp) * p.executeToDamage;
     }
-    if (p.critChance <= 0) return dmg;
-    if (this.rng.next() * 100 >= p.critChance) return dmg;
+    // DEADEYE SCOPE (legendarka mole-sniper): trafienie w cel z PEŁNYM HP bije
+    // +200% — nagroda za „opening shot" (naturalnie łapie pierwszy strzał snajpera).
+    if (target && target.maxHp > 0 && target.hp >= target.maxHp && p.uniqueEffects.has('deadeye-scope')) {
+      dmg *= 3;
+    }
+    // EVENT HORIZON (legendarka bear-gravity): cel pod GRAVITY DRAG obrywa +30%
+    // od Ciebie — combo z Twoimi studniami grawitacji (spowolnij → zmiażdż).
+    if (
+      target && STATUS_GRAVITY_DRAG >= 0 && p.uniqueEffects.has('event-horizon') &&
+      target.statuses.some((st) => st.defIndex === STATUS_GRAVITY_DRAG)
+    ) {
+      dmg *= 1.3;
+    }
+    // Szansa bazowa (romby) + gear, clamp na SUMIE do `critChanceMax`. RNG rusza
+    // dopiero po sprawdzeniu `crit > 0` — bez gearu to bit-w-bit stare zachowanie.
+    const crit = Math.min(ITEM_CAPS.critChanceMax, p.critChance + p.gearCritChance);
+    if (crit <= 0) return dmg;
+    if (this.rng.next() * 100 >= crit) return dmg;
     p.lastCritTick = this.tick;
     return dmg * p.critDamageMult;
   }
@@ -2639,11 +2829,15 @@ export class World {
     // Wszystkie parametry z definicji umiejętności — podmiana skilla przez
     // talent zmienia zachowanie bez dotykania tego kodu.
     const range = this.meleeRangeOf(p) * skill.rangeMult;
-    const baseDamage = this.meleeDamageOf(p) * skill.damageMult;
+    const baseDamage = this.skillDamageOf(p, skill.damageMult);
     const knockback = skill.knockback * p.knockbackMult;
-    const statusIndex = skill.status ? statusIndexById(skill.status) : -1;
+    let statusIndex = skill.status ? statusIndexById(skill.status) : -1;
+    // RAILGUN BARREL (legendarka mole-sniper): SNIPER SHOT ogłusza trafionych.
+    if (skill.id === 'sniper-shot' && STATUS_STUN >= 0 && p.uniqueEffects.has('railgun-barrel')) {
+      statusIndex = STATUS_STUN;
+    }
     // FLING (wydra PLAYFUL): bonus przy zderzeniu = obrażenia zwarcia × `fling`.
-    const flingBonus = skill.fling ? this.meleeDamageOf(p) * skill.fling : 0;
+    const flingBonus = skill.fling ? this.skillDamageOf(p, skill.fling) : 0;
     this.applyCone(p, p.x, p.y, dirX, dirY, range, baseDamage, skill.coneCos, knockback, statusIndex, flingBonus);
 
     // SWIPE alfy: ten sam cios POWTARZA każdy sojuszniczy minion gracza,
@@ -2793,7 +2987,8 @@ export class World {
     p: Player, index: number, input: SimInput, dirX: number, dirY: number,
   ): void {
     const combo = COMBOS[index];
-    p.comboCooldowns[index] = Math.round(combo.cooldownTicks * p.cooldownMult);
+    const cd = Math.max(ITEM_CAPS.minCooldownMult, p.cooldownMult * p.gearCooldownMult);
+    p.comboCooldowns[index] = Math.round(combo.cooldownTicks * cd);
     p.lastComboTick = this.tick;
     p.lastComboIndex = index;
 
@@ -2841,7 +3036,7 @@ export class World {
     const d = Math.sqrt(dx * dx + dy * dy) || 1;
     this.spawnProjectile(
       p.x, p.y, (dx / d) * 700, (dy / d) * 700,
-      this.meleeDamageOf(p) * effect.damageMult * p.chainDamageMult, true,
+      this.skillDamageOf(p, effect.damageMult) * p.chainDamageMult, true,
       {
         chains: effect.chains + p.chainCountBonus,
         chainRange: effect.chainRange,
@@ -2905,6 +3100,8 @@ export class World {
         if (p.chainBuffUses === 0) this.clearChainBuff(p);
       }
     }
+    // STORMFANG (legendarka wolf-thunder): rykoszet przeskakuje +3 razy więcej.
+    if (p.uniqueEffects.has('stormfang')) chains += 3;
     if (chains <= 0) return;
 
     const from = this.mobs[mobIndex];
@@ -2916,7 +3113,8 @@ export class World {
     const d = Math.sqrt(dx * dx + dy * dy) || 1;
     const bolt = this.spawnProjectile(
       from.x, from.y, (dx / d) * 640, (dy / d) * 640,
-      this.meleeDamageOf(p) * mult * p.chainDamageMult, true,
+      // Rykoszet to proc AUTO-ataku → skaluje się `attackDamageMult`, nie skillem.
+      this.meleeDamageOf(p) * mult * p.chainDamageMult * p.attackDamageMult, true,
       {
         // -1, bo pierwszy przeskok to sam lot do `next`.
         chains: Math.max(0, chains - 1 + p.chainCountBonus),
@@ -2963,7 +3161,7 @@ export class World {
     const d = Math.sqrt(dx * dx + dy * dy) || 1;
     this.spawnProjectile(
       p.x, p.y, (dx / d) * skill.speed, (dy / d) * skill.speed,
-      this.rollDamage(p, this.meleeDamageOf(p) * skill.damageMult), true,
+      this.rollDamage(p, this.skillDamageOf(p, skill.damageMult)), true,
       { ownerIndex: p.index },
     );
     p.skillCooldowns[slot] = 0;
@@ -3049,7 +3247,7 @@ export class World {
     // Jeden rzut na kryta dla CAŁEJ salwy, nie osobno na każdą strzałę:
     // czytelniej (cała salwa błyska razem) i zużycie RNG nie zależy od tego,
     // ile strzał dokleiły talenty.
-    const damage = this.rollDamage(p, this.meleeDamageOf(p) * skill.damageMult);
+    const damage = this.rollDamage(p, this.skillDamageOf(p, skill.damageMult));
     const base = Math.atan2(dirY, dirX);
 
     for (let i = 0; i < count; i++) {
@@ -3160,7 +3358,7 @@ export class World {
       h.maxRange = skill.range;
       h.width = skill.width;
       // Jeden rzut na kryta w chwili wystrzału — trafienie jest z góry ustalone.
-      h.damage = this.rollDamage(p, this.meleeDamageOf(p) * skill.damageMult);
+      h.damage = this.rollDamage(p, this.skillDamageOf(p, skill.damageMult));
       h.mode = skill.mode;
       h.status = skill.status ? statusIndexById(skill.status) : -1;
       h.grabsAllies = skill.grabsAllies ?? false;
@@ -3303,7 +3501,7 @@ export class World {
     if (statusIndex < 0) return;
     const radius = skill.radius * p.rangeMult;
     const r2 = radius * radius;
-    const perStack = this.meleeDamageOf(p) * skill.damagePerStackMult;
+    const perStack = this.skillDamageOf(p, skill.damagePerStackMult);
     this.hash.forEachNear(p.x, p.y, radius + C.MOB_RADIUS_MAX, (i) => {
       const m = this.mobs[i];
       if (!m.alive) return;
@@ -3390,7 +3588,7 @@ export class World {
           const dy = t.y - p.y;
           if (dx * dx + dy * dy <= r2) {
             picked = ti;
-            const dmg = this.rollDamage(p, this.meleeDamageOf(p) * pay.damageMult, t);
+            const dmg = this.rollDamage(p, this.skillDamageOf(p, pay.damageMult), t);
             t.hp -= dmg; t.lastHitTick = this.tick; healed += dmg; hit++;
             if (t.hp <= 0) this.killMob(t, p);
           }
@@ -3403,7 +3601,7 @@ export class World {
         const dx = m.x - p.x;
         const dy = m.y - p.y;
         if (dx * dx + dy * dy > r2) return;
-        const dmg = this.rollDamage(p, this.meleeDamageOf(p) * pay.damageMult, m);
+        const dmg = this.rollDamage(p, this.skillDamageOf(p, pay.damageMult), m);
         m.hp -= dmg; m.lastHitTick = this.tick; healed += dmg; hit++;
         if (m.hp <= 0) this.killMob(m, p);
       });
@@ -3428,7 +3626,7 @@ export class World {
         );
         m.x = Math.min(Math.max(at.x, C.MOB_RADIUS), C.WORLD_W - C.MOB_RADIUS);
         m.y = Math.min(Math.max(at.y, C.MOB_RADIUS), C.WORLD_H - C.MOB_RADIUS);
-        m.hp -= this.rollDamage(p, this.meleeDamageOf(p) * pay.damageMult, m);
+        m.hp -= this.rollDamage(p, this.skillDamageOf(p, pay.damageMult), m);
         m.lastHitTick = this.tick;
         if (m.hp <= 0) this.killMob(m, p);
       });
@@ -3448,7 +3646,7 @@ export class World {
       const dx = m.x - p.x;
       const dy = m.y - p.y;
       if (dx * dx + dy * dy > novaR2) return;
-      const dmg = this.rollDamage(p, this.meleeDamageOf(p) * pay.damageMult, m);
+      const dmg = this.rollDamage(p, this.skillDamageOf(p, pay.damageMult), m);
       m.hp -= dmg;
       m.lastHitTick = this.tick;
       healed += dmg;
@@ -4459,8 +4657,9 @@ export class World {
 
       touching++;
       damage = Math.max(damage, def.contactDamage);
-      if (p.thornsDamage > 0) {
-        m.hp -= p.thornsDamage;
+      const thorns = Math.min(ITEM_CAPS.thornsMax, p.thornsDamage + p.gearThorns);
+      if (thorns > 0) {
+        m.hp -= thorns;
         m.lastHitTick = this.tick;
         if (m.hp <= 0) this.killMob(m, p);
       }
@@ -4493,7 +4692,9 @@ export class World {
       p.lastShieldTick = this.tick;
       return;
     }
-    const reduced = Math.max(1, amount - (p.armorFlat + p.auraArmorFlat));
+    // Armor bazowy (romby) + gear, clamp na SUMIE do `armorMax`; aura osobno na wierzchu.
+    const armor = Math.min(ITEM_CAPS.armorMax, p.armorFlat + p.gearArmorFlat);
+    const reduced = Math.max(1, amount - (armor + p.auraArmorFlat));
     p.hp = Math.max(0, p.hp - reduced);
     if (p.hp <= 0) {
       p.dead = true;
@@ -4529,25 +4730,37 @@ export class World {
       );
     }
     if (m.bossIndex >= 0) {
-      // Boss padł. Wskaźnik na jego slot MUSI zniknąć od razu — inaczej
-      // pierwszy mob, który dostanie ten slot z poola, zacznie udawać bossa.
+      // Boss padł. `bossIndex = -1` sprawia, że getter `bossMobIndex` przestaje
+      // go liczyć (a przejęty przez zwykłego moba slot i tak ma bossIndex -1).
+      // Wave kończy się, gdy WSZYSCY bossowie fali polegną (`bossDefeated` getter).
       m.bossIndex = -1;
-      this.bossMobIndex = -1;
-      this.bossDefeated = true;
       killer.kills++;
+      killer.gold += GOLD_PER_BOSS;
+      // LEGENDARKA: tylko z bossa, pod klasę+spec zabójcy, bez dubli. Kładzie się
+      // na ziemi w miejscu bossa — zabójca podnosi ją do plecaka (jak każdy gear).
+      const leg = this.rollLegendary(killer);
+      if (leg) this.dropGearPiece(m.x, m.y, leg);
       // Boss to nie jest „jeden mob" — daje tyle, co cała fala zwykłych.
       this.gainXp(killer, this.waveXp);
       return;
     }
     this.aliveByType[m.defIndex]--;
     killer.kills++;
+    killer.gold += GOLD_PER_KILL;
     this.gainXp(killer, PROGRESSION.xpPerKill);
-    if (killer.leechHealPerKill > 0) {
-      killer.hp = Math.min(this.maxHpOf(killer), killer.hp + killer.leechHealPerKill);
+    const leech = Math.min(ITEM_CAPS.leechMax, killer.leechHealPerKill + killer.gearLeech);
+    if (leech > 0) {
+      killer.hp = Math.min(this.maxHpOf(killer), killer.hp + leech);
     }
     this.tryRaise(m, killer);
-    const dropChance = DROP_CONFIG.dropChancePercent + killer.dropChanceBonus;
-    if (this.rng.next() * 100 < dropChance) this.dropItem(m.x, m.y);
+    // GEAR najpierw — rzadszy, własny roll. Gdy padnie gear, romb z tego moba
+    // już nie leci (jeden drop na zabójstwo). Źródło/szansa/rarity → Faza 6.
+    if (this.rng.next() * 100 < GEAR_DROP.dropChancePercent) {
+      this.dropGear(m.x, m.y);
+    } else {
+      const dropChance = DROP_CONFIG.dropChancePercent + killer.dropChanceBonus;
+      if (this.rng.next() * 100 < dropChance) this.dropItem(m.x, m.y);
+    }
   }
 
   private dropItem(x: number, y: number): void {
@@ -4576,9 +4789,182 @@ export class World {
     const p = this.pickups[slot];
     p.alive = true;
     p.defIndex = defIndex;
+    p.gear = null; // slot mógł wcześniej nieść gear — wyczyść referencję
     p.x = x;
     p.y = y;
     p.ttl = Math.round(DROP_CONFIG.despawnSeconds * C.TICK_RATE);
+  }
+
+  /** Upuszcza zrollowaną (losową) część gearu na ziemię (ten sam pool co romby). */
+  private dropGear(x: number, y: number): void {
+    this.dropGearPiece(x, y, this.rollGearPiece());
+  }
+
+  /** Kładzie KONKRETNĄ część na ziemi — wspólne dla dropu losowego i legendarki. */
+  private dropGearPiece(x: number, y: number, piece: GearPiece): void {
+    let slot = -1;
+    for (let i = 0; i < this.pickups.length; i++) {
+      if (!this.pickups[i].alive) { slot = i; break; }
+    }
+    if (slot === -1) return;
+    const p = this.pickups[slot];
+    p.alive = true;
+    p.defIndex = -1; // -1 = to gear, nie romb
+    p.gear = piece;
+    p.x = x;
+    p.y = y;
+    p.ttl = Math.round(DROP_CONFIG.despawnSeconds * C.TICK_RATE);
+  }
+
+  /**
+   * Losuje legendarkę dla gracza (drop z bossa): pod jego klasę + WYBRANY spec,
+   * z pominięciem już posiadanych (założone lub w plecaku) — bez dubli. null gdy
+   * brak speca albo wszystkie już ma. Deterministycznie przez `this.rng`.
+   */
+  private rollLegendary(p: Player): GearPiece | null {
+    if (p.specIndex < 0) return null;
+    const branch = branchesFor(p.cls.id)[p.specIndex];
+    if (!branch) return null;
+    const owned = this.ownedUniqueIds(p);
+    const pool = legendariesFor(p.cls.id, branch.id).filter((l) => !owned.has(l.id));
+    if (pool.length === 0) return null;
+    const def = pool[Math.floor(this.rng.next() * pool.length)];
+    return {
+      id: this.nextGearId++,
+      slotType: def.slotType,
+      twoHanded: def.twoHanded,
+      name: def.name,
+      rarity: LEGENDARY_RARITY,
+      affixes: def.affixes.map((a) => ({ ...a })),
+      unique: def.id,
+    };
+  }
+
+  /** Zbiór id legendarek, które gracz już posiada (założone + plecak) — anty-dubel. */
+  private ownedUniqueIds(p: Player): Set<string> {
+    const s = new Set<string>();
+    for (const piece of p.equipped) if (piece?.unique) s.add(piece.unique);
+    for (const piece of p.bag) if (piece?.unique) s.add(piece.unique);
+    return s;
+  }
+
+  /* ── Sklep runowy (przerwa) ─────────────────────────────────────────────── */
+
+  /** Generuje ofertę sklepu na przerwę (deterministycznie przez `this.rng`). */
+  private rollShop(p: Player): void {
+    p.shopOffers = [];
+    for (let i = 0; i < SHOP_SIZE; i++) p.shopOffers.push(this.rollShopOffer());
+  }
+
+  /** Jedna pozycja sklepu: 60% gear (losowany), 40% romb/boost statu. */
+  private rollShopOffer(): ShopOffer {
+    if (this.rng.next() < 0.6) {
+      const piece = this.rollGearPiece();
+      return {
+        kind: 'gear', price: (SELL_VALUE[piece.rarity] ?? 5) * GEAR_PRICE_MULT, sold: false,
+        gear: piece, upgradeKind: 'strength', upgradeValue: 0,
+        label: piece.name, color: RARITIES[piece.rarity].color,
+      };
+    }
+    const def = this.pickShopUpgrade();
+    return {
+      kind: 'upgrade', price: UPGRADE_PRICE, sold: false,
+      gear: null, upgradeKind: def.kind, upgradeValue: def.value,
+      label: def.name, color: def.color,
+    };
+  }
+
+  /** Ważony wybór romba do sklepu — z tej samej puli co karty ulepszeń. */
+  private pickShopUpgrade(): UpgradeDef {
+    let total = 0;
+    for (const u of UPGRADES) total += u.weight;
+    let roll = this.rng.next() * total;
+    for (const u of UPGRADES) { roll -= u.weight; if (roll <= 0) return u; }
+    return UPGRADES[0];
+  }
+
+  /** Obsługa komend sklepu (kupno/reroll) — wywoływana w przerwie. */
+  private handleShop(p: Player, input: SimInput): void {
+    if (input.shopBuy >= 0 && input.shopBuy < p.shopOffers.length) {
+      const o = p.shopOffers[input.shopBuy];
+      if (o && !o.sold && p.gold >= o.price) {
+        if (o.kind === 'gear' && o.gear && this.stashInBag(p, o.gear)) {
+          p.gold -= o.price;
+          o.sold = true;
+        } else if (o.kind === 'upgrade') {
+          p.gold -= o.price;
+          this.applyEffect(p, o.upgradeKind, o.upgradeValue);
+          o.sold = true;
+        }
+      }
+    }
+    if (input.shopReroll && p.gold >= SHOP_REROLL_COST) {
+      p.gold -= SHOP_REROLL_COST;
+      this.rollShop(p);
+    }
+  }
+
+  /**
+   * Losuje część gearu: slot → tier rarity → z niego liczba afixów → dobór
+   * RÓŻNYCH kindów z puli slotu → roll wartości z zakresu × mnożnik rarity.
+   * Deterministycznie przez `this.rng`; `id` z monotonicznego `nextGearId`.
+   * Unikalne mechaniki legendarek świadomie odłożone (patrz TODOS).
+   */
+  private rollGearPiece(): GearPiece {
+    const slotType = GEAR_SLOT_TYPES[Math.floor(this.rng.next() * GEAR_SLOT_TYPES.length)];
+    const rarityIdx = this.rollRarityIndex();
+    const rarity = RARITIES[rarityIdx];
+
+    // Kopia puli — losujemy BEZ powtórek (jeden kind na część).
+    const pool = SLOT_AFFIX_POOL[slotType].slice();
+    const count = Math.min(rarity.affixCount, pool.length);
+    const affixes: GearAffix[] = [];
+    for (let n = 0; n < count; n++) {
+      const kind = pool.splice(Math.floor(this.rng.next() * pool.length), 1)[0];
+      affixes.push({ kind, value: this.rollAffixValue(kind, rarity) });
+    }
+
+    const twoHanded = slotType === 'weapon' && this.rng.next() < 0.3;
+    return {
+      id: this.nextGearId++,
+      slotType,
+      twoHanded,
+      name: this.gearName(slotType, twoHanded, rarity),
+      rarity: rarityIdx,
+      affixes,
+    };
+  }
+
+  /** Ważony wybór tieru rarity (indeks w RARITIES). */
+  private rollRarityIndex(): GearRarity {
+    let total = 0;
+    for (const r of RARITIES) total += r.weight;
+    let roll = this.rng.next() * total;
+    for (let i = 0; i < RARITIES.length; i++) {
+      roll -= RARITIES[i].weight;
+      if (roll <= 0) return i as GearRarity;
+    }
+    return 0;
+  }
+
+  /** Roll wartości afixu z zakresu × mnożnik rarity; liczniki → int (min 1). */
+  private rollAffixValue(kind: ItemKind, rarity: RarityDef): number {
+    const range = GEAR_AFFIX_RANGE[kind] ?? [0, 0];
+    const value = (range[0] + this.rng.next() * (range[1] - range[0])) * rarity.valueMult;
+    if (kind === 'projectileCount' || kind === 'chainCount') {
+      return Math.max(1, Math.round(value));
+    }
+    return Math.round(value * 10) / 10; // 0.1 precyzji — czytelne w UI
+  }
+
+  /** Robocza nazwa części (EN) z prefiksem rarity, np. „Rare Ring". */
+  private gearName(slotType: GearSlotType, twoHanded: boolean, rarity: RarityDef): string {
+    const base: Record<GearSlotType, string> = {
+      weapon: twoHanded ? 'Greatweapon' : 'Weapon',
+      offhand: 'Off-hand', head: 'Helm', body: 'Chestplate', legs: 'Greaves',
+      ring: 'Ring', amulet: 'Amulet', boots: 'Boots', gloves: 'Gauntlets', belt: 'Belt',
+    };
+    return `${rarity.name} ${base[slotType]}`;
   }
 
   /** Item zbiera pierwszy gracz, który do niego dojdzie (kto pierwszy, ten lepszy). */
@@ -4589,6 +4975,7 @@ export class World {
       item.ttl--;
       if (item.ttl <= 0) {
         item.alive = false;
+        item.gear = null;
         continue;
       }
       for (const p of this.players) {
@@ -4596,11 +4983,19 @@ export class World {
         const radius = this.pickupRadiusOf(p);
         const dx = item.x - p.x;
         const dy = item.y - p.y;
-        if (dx * dx + dy * dy <= radius * radius) {
-          item.alive = false;
+        if (dx * dx + dy * dy > radius * radius) continue;
+        if (item.gear) {
+          // Gear → plecak. Pełny plecak = zostaw na ziemi (może inny gracz albo później).
+          if (!this.stashInBag(p, item.gear)) continue;
+          p.lastGearTick = this.tick;
+          p.lastGearName = item.gear.name;
+          p.lastGearRarity = item.gear.rarity;
+          item.gear = null;
+        } else {
           this.collectItem(p, item.defIndex);
-          break;
         }
+        item.alive = false;
+        break;
       }
     }
   }
@@ -4637,6 +5032,12 @@ export class World {
         break;
       case 'strength':
         p.damageMult += value / 100;
+        break;
+      case 'attackDamage':
+        p.attackDamageMult += value / 100;
+        break;
+      case 'skillPower':
+        p.skillPowerMult += value / 100;
         break;
       case 'overshield':
         p.shieldCharges = Math.min(ITEM_CAPS.maxShieldCharges, p.shieldCharges + value);
@@ -4705,9 +5106,202 @@ export class World {
     }
   }
 
+  /**
+   * Przelicza warstwę GEAR od zera i wpina ją w staty gracza. Wołane po KAŻDEJ
+   * zmianie ekwipunku (i raz przy tworzeniu gracza). Trzy kroki:
+   *  1. cofnij poprzedni wkład foldowany (odjęcie — dlatego pola bez capa),
+   *  2. zsumuj afixy założonych części do `gearFold` (bez capa) i `gearX` (z capem),
+   *  3. dołóż nowy wkład foldowany do pól efektywnych.
+   * Staty z capem NIE są tu wpinane w pola efektywne — łączy je i clampuje read-site.
+   */
+  private recomputeGear(p: Player): void {
+    this.applyGearFold(p, -1);
+
+    const g = p.gearFold;
+    g.damageMult = 0; g.attackDamageMult = 0; g.skillPowerMult = 0;
+    g.attackSpeedMult = 0; g.rangeMult = 0; g.critDamageMult = 0;
+    g.knockbackMult = 0; g.speedMult = 0;
+    g.maxHpBonus = 0; g.magnetBonus = 0;
+    g.projectileCountBonus = 0; g.chainCountBonus = 0;
+    p.gearArmorFlat = 0; p.gearCritChance = 0; p.gearRegen = 0;
+    p.gearLeech = 0; p.gearThorns = 0; p.gearCooldownMult = 1;
+
+    for (const piece of p.equipped) {
+      if (!piece) continue;
+      for (const a of piece.affixes) this.accumulateGearAffix(p, a.kind, a.value);
+    }
+
+    this.applyGearFold(p, 1);
+
+    // UNIKALNE efekty legendarek — rebuild od zera z założonych części. Sim
+    // sprawdza `uniqueEffects.has(id)` w hookach; zdjęcie części zdejmuje efekt.
+    p.uniqueEffects.clear();
+    for (const piece of p.equipped) {
+      if (piece?.unique) p.uniqueEffects.add(piece.unique);
+    }
+
+    // Zdjęcie części z +maxHp może obniżyć maks — utnij HP do nowego sufitu.
+    p.hp = Math.min(this.maxHpOf(p), p.hp);
+  }
+
+  /** Dodaje (`sign=+1`) lub cofa (`sign=-1`) foldowany wkład gearu z pól efektywnych. */
+  private applyGearFold(p: Player, sign: number): void {
+    const g = p.gearFold;
+    p.damageMult += sign * g.damageMult;
+    p.attackDamageMult += sign * g.attackDamageMult;
+    p.skillPowerMult += sign * g.skillPowerMult;
+    p.attackSpeedMult += sign * g.attackSpeedMult;
+    p.rangeMult += sign * g.rangeMult;
+    p.critDamageMult += sign * g.critDamageMult;
+    p.knockbackMult += sign * g.knockbackMult;
+    p.speedMult += sign * g.speedMult;
+    p.maxHpBonus += sign * g.maxHpBonus;
+    p.magnetBonus += sign * g.magnetBonus;
+    p.projectileCountBonus += sign * g.projectileCountBonus;
+    p.chainCountBonus += sign * g.chainCountBonus;
+  }
+
+  /**
+   * Wpisuje jeden afiks części do akumulatorów warstwy gear. Kindy BEZ capa →
+   * `gearFold` (procent jako ułamek, płaskie/licznik wprost). Kindy Z capem →
+   * równoległe `gearX` (surowa suma; clamp dopiero przy odczycie). `value` znaczy
+   * to samo co w `itemsConfig.ts`. Kindy spoza gearu są ignorowane (`default`).
+   */
+  private accumulateGearAffix(p: Player, kind: ItemKind, value: number): void {
+    const g = p.gearFold;
+    switch (kind) {
+      // ── bez capa (fold do pól efektywnych) ──
+      case 'strength': g.damageMult += value / 100; break;
+      case 'attackDamage': g.attackDamageMult += value / 100; break;
+      case 'skillPower': g.skillPowerMult += value / 100; break;
+      case 'attackSpeed': g.attackSpeedMult += value / 100; break;
+      case 'range': g.rangeMult += value / 100; break;
+      case 'critDamage': g.critDamageMult += value / 100; break;
+      case 'knockback': g.knockbackMult += value / 100; break;
+      case 'speed': g.speedMult += value / 100; break;
+      case 'maxHp': g.maxHpBonus += value; break;
+      case 'magnet': g.magnetBonus += value; break;
+      case 'projectileCount': g.projectileCountBonus += value; break;
+      case 'chainCount': g.chainCountBonus += value; break;
+      // ── z capem (równoległe; clamp na SUMIE przy odczycie) ──
+      case 'armor': p.gearArmorFlat += value; break;
+      case 'critChance': p.gearCritChance += value; break;
+      case 'regen': p.gearRegen += value; break;
+      case 'leech': p.gearLeech += value; break;
+      case 'thorns': p.gearThorns += value; break;
+      case 'cooldown':
+        p.gearCooldownMult = Math.max(ITEM_CAPS.minCooldownMult, p.gearCooldownMult - value / 100);
+        break;
+      default: break;
+    }
+  }
+
+  /**
+   * Wykonuje komendy ekwipunku z inputu (drop/unequip/equip). Wołane WYŁĄCZNIE
+   * w przerwie (`stepBreak`), więc gear zmienia się tylko w bezpiecznym oknie —
+   * tak jak wybór ulepszenia. Po każdej realnej zmianie przelicza warstwę gear.
+   */
+  private handleGearCommands(p: Player, input: SimInput): void {
+    let changed = false;
+
+    // SPRZEDAŻ (prawy-klik w plecaku) — część znika, gracz dostaje złoto wg rarity.
+    // Najpierw, żeby zwolnić miejsce pod ewentualny swap poniżej.
+    const sellIdx = input.dropBag;
+    if (sellIdx >= 0 && sellIdx < p.bag.length && p.bag[sellIdx]) {
+      p.gold += SELL_VALUE[p.bag[sellIdx]!.rarity] ?? 0;
+      p.bag[sellIdx] = null;
+    }
+
+    // UNEQUIP: część ze slotu wraca do plecaka (o ile jest miejsce).
+    if (input.unequipSlot >= 0 && input.unequipSlot < p.equipped.length) {
+      const piece = p.equipped[input.unequipSlot];
+      if (piece && this.stashInBag(p, piece)) {
+        p.equipped[input.unequipSlot] = null;
+        changed = true;
+      }
+    }
+
+    // EQUIP: część z plecaka na slot (reguła 2H↔off-hand + księgowanie miejsca).
+    if (input.equipFromBag >= 0 && input.equipFromBag < p.bag.length) {
+      const piece = p.bag[input.equipFromBag];
+      if (piece && this.equipPiece(p, input.equipFromBag, piece, input.equipToSlot)) {
+        changed = true;
+      }
+    }
+
+    if (changed) this.recomputeGear(p);
+  }
+
+  /** Wkłada część do pierwszego wolnego slotu plecaka; false gdy plecak pełny. */
+  private stashInBag(p: Player, piece: GearPiece): boolean {
+    for (let i = 0; i < p.bag.length; i++) {
+      if (!p.bag[i]) { p.bag[i] = piece; return true; }
+    }
+    return false;
+  }
+
+  /**
+   * Pozycja auto-routingu: pierwszy PUSTY slot pasujący typem, a gdy takiego nie
+   * ma — pierwszy pasujący (będzie swap). -1 gdy żaden slot nie pasuje typem.
+   */
+  private autoRouteSlot(p: Player, piece: GearPiece): number {
+    let firstMatch = -1;
+    for (let i = 0; i < p.equipped.length; i++) {
+      if (equipSlotType(i) !== piece.slotType) continue;
+      if (firstMatch < 0) firstMatch = i;
+      if (!p.equipped[i]) return i;
+    }
+    return firstMatch;
+  }
+
+  /**
+   * Zakłada część z plecaka na slot. Reguła 2H↔off-hand:
+   *  - broń 2H wypycha off-hand do plecaka,
+   *  - cokolwiek zakładane na off-hand wypycha broń 2H do plecaka.
+   * Wypchnięte części (z dotychczasowym lokatorem slotu włącznie) muszą zmieścić
+   * się w plecaku — inaczej operacja jest ANULOWANA bez żadnej mutacji.
+   */
+  private equipPiece(p: Player, bagIndex: number, piece: GearPiece, toSlot: number): boolean {
+    let slot: number;
+    if (toSlot >= 0) {
+      if (toSlot >= p.equipped.length || !acceptsPiece(toSlot, piece)) return false;
+      slot = toSlot;
+    } else {
+      slot = this.autoRouteSlot(p, piece);
+      if (slot < 0) return false;
+    }
+
+    // Pozycje ekwipunku do wypchnięcia do plecaka (wszystkie różne).
+    const displaced: number[] = [];
+    if (p.equipped[slot]) displaced.push(slot);
+    if (blocksOffhand(piece) && slot !== OFFHAND_SLOT_INDEX
+        && OFFHAND_SLOT_INDEX >= 0 && p.equipped[OFFHAND_SLOT_INDEX]) {
+      displaced.push(OFFHAND_SLOT_INDEX);
+    }
+    if (slot === OFFHAND_SLOT_INDEX && WEAPON_SLOT_INDEX >= 0) {
+      const weapon = p.equipped[WEAPON_SLOT_INDEX];
+      if (weapon && blocksOffhand(weapon)) displaced.push(WEAPON_SLOT_INDEX);
+    }
+
+    // Miejsce w plecaku PO wyjęciu zakładanej części (jej slot się zwalnia).
+    let free = 0;
+    for (let i = 0; i < p.bag.length; i++) if (!p.bag[i] || i === bagIndex) free++;
+    if (displaced.length > free) return false; // brak miejsca → anuluj bez mutacji
+
+    p.bag[bagIndex] = null;
+    for (const idx of displaced) {
+      this.stashInBag(p, p.equipped[idx]!);
+      p.equipped[idx] = null;
+    }
+    p.equipped[slot] = piece;
+    return true;
+  }
+
   private applyRegen(p: Player): void {
-    if (p.regenPerSec <= 0) return;
-    p.hp = Math.min(this.maxHpOf(p), p.hp + p.regenPerSec * C.TICK_DT);
+    // Cap wspólny dla rombów i gearu (patrz warstwa gear w interfejsie Player).
+    const regen = Math.min(ITEM_CAPS.regenMax, p.regenPerSec + p.gearRegen);
+    if (regen <= 0) return;
+    p.hp = Math.min(this.maxHpOf(p), p.hp + regen * C.TICK_DT);
   }
 
   /**
@@ -4741,6 +5335,15 @@ export class World {
       mix(p.specIndex);
       for (const spent of p.spentPerBranch) mix(spent);
       mix(p.kills);
+      mix(p.gold);
+      // Ekwipunek wpływa na staty, a plecak jest sterowany inputem (equip =
+      // komenda), więc rozjazd w gearze musi być wyłapany tak samo szybko jak
+      // rozjazd talentów. `id` instancji wystarcza — różny gear = różne id.
+      for (const it of p.equipped) mix(it ? it.id : 0);
+      for (const it of p.bag) mix(it ? it.id : 0);
+      // Oferta sklepu jest deterministyczna, a kupno to komenda — rozjazd w niej
+      // (cena/sprzedane/id) zdradziłby desync w ekonomii, zanim ruszy staty.
+      for (const o of p.shopOffers) { mix(o.price); mix(o.sold ? 1 : 0); mix(o.gear ? o.gear.id : 0); }
     }
     // Jednostki wpływają na przebieg walki, więc rozjazd w nich musi być
     // wykryty tak samo szybko jak rozjazd w mobkach.

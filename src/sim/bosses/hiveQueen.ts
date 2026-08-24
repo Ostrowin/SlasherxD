@@ -16,47 +16,73 @@ export const HIVE_QUEEN: BossDef = {
   color: 0xff3ea5,
   // Dużo boków = ciężka, masywna bryła; pasuje do powolnego czołgu.
   shapeSides: 10,
-  hp: 900,
+  // BUFF finału 2026-08-22: więcej HP/dmg, szybsze ataki, TRZECIA faza furii.
+  hp: 1250,
   radius: 46,
   speed: 62,
-  contactDamage: 14,
+  contactDamage: 18,
 
   phases: [
     {
       hpFraction: 1,
       announce: 'HIVE QUEEN AWAKENS',
-      attackIntervalTicks: secs(2.2),
+      attackIntervalTicks: secs(1.9),
       speedMult: 1,
       attacks: [
         // Blisko boli: ciężki młot z czytelnym zamachem.
-        { kind: 'slam', windupTicks: secs(1), hitRadius: 190, damage: 26, recoverTicks: secs(1.2) },
+        { kind: 'slam', windupTicks: secs(0.95), hitRadius: 210, damage: 30, recoverTicks: secs(1.1) },
         // Daleko też boli: pierścień pocisków wymusza szukanie osłony.
         {
-          kind: 'ring', windupTicks: secs(0.9), count: 14,
-          projectileSpeed: 190, damage: 12, recoverTicks: secs(1),
+          kind: 'ring', windupTicks: secs(0.85), count: 18,
+          projectileSpeed: 200, damage: 14, recoverTicks: secs(0.95),
         },
-        { kind: 'slam', windupTicks: secs(1), hitRadius: 190, damage: 26, recoverTicks: secs(1.2) },
-        // Trochę towarzystwa, żeby gracz nie mógł skupić się tylko na bossie.
-        { kind: 'summon', windupTicks: secs(0.8), enemyId: 'demon', count: 6, recoverTicks: secs(0.8) },
+        { kind: 'slam', windupTicks: secs(0.95), hitRadius: 210, damage: 30, recoverTicks: secs(1.1) },
+        // Więcej towarzystwa, żeby gracz nie mógł skupić się tylko na bossie.
+        { kind: 'summon', windupTicks: secs(0.75), enemyId: 'demon', count: 8, recoverTicks: secs(0.75) },
       ],
     },
     {
       hpFraction: 0.5,
       announce: 'THE QUEEN IS ENRAGED',
-      attackIntervalTicks: secs(1.5),
-      speedMult: 1.35,
+      attackIntervalTicks: secs(1.3),
+      speedMult: 1.4,
       attacks: [
         // Faza furii: szarża zmusza do uników w bok, nie do ucieczki w tył.
         {
-          kind: 'charge', windupTicks: secs(0.7), speed: 430,
-          durationTicks: secs(0.85), damage: 30, hitRadius: 60, recoverTicks: secs(1.1),
+          kind: 'charge', windupTicks: secs(0.6), speed: 470,
+          durationTicks: secs(0.85), damage: 34, hitRadius: 62, recoverTicks: secs(1.0),
         },
         {
-          kind: 'ring', windupTicks: secs(0.7), count: 20,
-          projectileSpeed: 220, damage: 14, recoverTicks: secs(0.8),
+          kind: 'ring', windupTicks: secs(0.65), count: 26,
+          projectileSpeed: 235, damage: 16, recoverTicks: secs(0.75),
         },
-        { kind: 'slam', windupTicks: secs(0.8), hitRadius: 220, damage: 32, recoverTicks: secs(1) },
-        { kind: 'summon', windupTicks: secs(0.7), enemyId: 'brute', count: 2, recoverTicks: secs(0.8) },
+        { kind: 'slam', windupTicks: secs(0.75), hitRadius: 245, damage: 38, recoverTicks: secs(0.95) },
+        { kind: 'summon', windupTicks: secs(0.65), enemyId: 'brute', count: 3, recoverTicks: secs(0.75) },
+      ],
+    },
+    {
+      // TRZECIA faza (nowa): ostatnie 25% HP to prawdziwy finał runu.
+      hpFraction: 0.25,
+      announce: 'THE HIVE CONSUMES ALL',
+      attackIntervalTicks: secs(1.05),
+      speedMult: 1.55,
+      attacks: [
+        // Podwójna szarża — pierwszy unik nie kończy sprawy.
+        {
+          kind: 'charge', windupTicks: secs(0.45), speed: 520,
+          durationTicks: secs(0.7), damage: 36, hitRadius: 64, recoverTicks: secs(0.4),
+        },
+        {
+          kind: 'charge', windupTicks: secs(0.4), speed: 520,
+          durationTicks: secs(0.7), damage: 36, hitRadius: 64, recoverTicks: secs(0.7),
+        },
+        // Ściana pocisków — luk mało, trzeba je wypatrzeć w biegu.
+        {
+          kind: 'ring', windupTicks: secs(0.55), count: 32,
+          projectileSpeed: 250, damage: 17, recoverTicks: secs(0.7),
+        },
+        { kind: 'slam', windupTicks: secs(0.7), hitRadius: 260, damage: 42, recoverTicks: secs(0.85) },
+        { kind: 'summon', windupTicks: secs(0.6), enemyId: 'demon', count: 8, recoverTicks: secs(0.7) },
       ],
     },
   ],

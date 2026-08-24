@@ -129,6 +129,7 @@ export class ClassSelectScene extends Phaser.Scene {
   }
 
   private confirm(): void {
-    this.scene.start('game', { classId: CLASSES[this.selected].id });
+    // Po klasie idziemy na wybór mapy (nie prosto do gry).
+    this.scene.start('map-select', { classId: CLASSES[this.selected].id });
   }
 }

@@ -90,6 +90,27 @@ export function makeStarfield(
   g.destroy();
 }
 
+/**
+ * Winieta na niski HP: przezroczysty środek → biały (do steintowania) brzeg.
+ * Robimy ją canvasem, bo `Graphics` nie ma gładkiego gradientu radialnego.
+ * Rozciągana na cały ekran (owalne zniekształcenie jest tu pożądane — to winieta).
+ */
+export function makeVignette(scene: Phaser.Scene, key: string, size = 256): void {
+  if (scene.textures.exists(key)) return;
+  const tex = scene.textures.createCanvas(key, size, size);
+  if (!tex) return;
+  const ctx = tex.getContext();
+  const grad = ctx.createRadialGradient(
+    size / 2, size / 2, size * 0.22,
+    size / 2, size / 2, size * 0.55,
+  );
+  grad.addColorStop(0, 'rgba(255,255,255,0)');
+  grad.addColorStop(1, 'rgba(255,255,255,1)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, size, size);
+  tex.refresh();
+}
+
 /** Siatka technologiczna — delikatny „podłoga stacji" pod gwiazdami. */
 export function makeNeonGrid(scene: Phaser.Scene, key: string, cell: number): void {
   if (scene.textures.exists(key)) return;

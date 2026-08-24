@@ -1,21 +1,28 @@
 import Phaser from 'phaser';
 import { World, withoutOneShots, type Mob, type Player, type SimInput } from '../sim/world';
 import { CLASSES, classById, DEFAULT_CLASS_ID, type ClassDef } from '../sim/classes';
+import { DEFAULT_MAP_ID } from '../sim/maps';
 import { ENEMIES } from '../sim/enemies';
 import { BOSSES, type BossDef } from '../sim/bosses';
 import { sfx } from './audio';
-import { ALPHA_PACK, branchesFor, PROGRESSION, talentSlotsFor } from '../sim/talentsConfig';
+import { branchesFor, PROGRESSION, talentSlotsFor } from '../sim/talentsConfig';
 import { SKILL_KEYS, skillById, type ConeSkill } from '../sim/skillsConfig';
 import { COMBOS } from '../sim/comboConfig';
 import { MINIONS, minionEffectRadius, type MinionDef } from '../sim/minionsConfig';
 import { AURAS, STATUSES, auraById } from '../sim/statusConfig';
 import { DROP_CONFIG, ITEMS } from '../sim/itemsConfig';
+import { RARITIES } from '../sim/gearConfig';
 import { UPGRADES, WAVE_CONFIG } from '../sim/wavesConfig';
 import { CURRENCY_NAME, computeReward } from '../sim/metaConfig';
 import { loadSave, metaBonusesFrom, writeSave } from '../meta/save';
-import { makeGlowCircle, makeGlowPolygon, makeNeonGrid, makeStarfield } from './textures';
+import { makeGlowCircle, makeGlowPolygon, makeNeonGrid, makeStarfield, makeVignette } from './textures';
 import { FogOfWar } from './fog';
 import { Minimap } from './Minimap';
+import { Hud } from './Hud';
+import { DamageNumbers } from './DamageNumbers';
+import { InventoryScreen } from './InventoryScreen';
+import { PauseScreen } from './PauseScreen';
+import { ShopPanel } from './ShopPanel';
 import { LockstepSession } from '../net/lockstep';
 import type { Transport } from '../net/types';
 
@@ -76,7 +83,8 @@ export class GameScene extends Phaser.Scene {
   /** Okręgi pokazujące, jak daleko sięgają pola obszarowe (`slam`). */
   private fieldRings!: Phaser.GameObjects.Graphics;
   private bossBar!: Phaser.GameObjects.Graphics;
-  private bossName!: Phaser.GameObjects.Text;
+  /** Pula nazw bossów — po jednej na pasek (fala 9 mapy crater ma 3 naraz). */
+  private bossNames: Phaser.GameObjects.Text[] = [];
   private lastSeenBossPhaseTick = -1;
   private session: LockstepSession | null = null;
   private coop: CoopInit | null = null;
@@ -131,6 +139,7 @@ export class GameScene extends Phaser.Scene {
   private pickupSprites: Phaser.GameObjects.Image[] = [];
   private minionSprites: Phaser.GameObjects.Image[] = [];
   private lastSeenPickupTick = -1;
+  private lastSeenGearTick = -1;
   private lastSeenShieldTick = -1;
   private deathParticles!: Phaser.GameObjects.Particles.ParticleEmitter;
   private telegraphs!: Phaser.GameObjects.Graphics;
@@ -147,6 +156,21 @@ export class GameScene extends Phaser.Scene {
   private fog!: FogOfWar;
   private minimap!: Minimap;
 
+  /** Graficzny HUD (paski HP/XP, ikony QWER z cooldownami, buffy). */
+  private hudGfx!: Hud;
+  /** Floating liczby obrażeń (pool). */
+  private damageNumbers!: DamageNumbers;
+  /** HP wrogów z poprzedniej klatki — delta wyzwala liczbę obrażeń. */
+  private mobPrevHp: number[] = [];
+  /** Czerwona winieta na niskim HP (alpha sterowana ułamkiem życia). */
+  private vignette!: Phaser.GameObjects.Image;
+  /** Ekran ekwipunku (overlay, klawisz I). */
+  private inventory!: InventoryScreen;
+  /** Menu pauzy + ekran statystyk (ESC). */
+  private pauseScreen!: PauseScreen;
+  /** Sklep runowy w przerwie (kupno/reroll za złoto). */
+  private shopPanel!: ShopPanel;
+  /** Reszta tekstowa HUD-u: podpowiedzi sterowania, nag o punktach, tryb celowania. */
   private hud!: Phaser.GameObjects.Text;
   private deathText!: Phaser.GameObjects.Text;
   private lastSeenHp = 0;
@@ -154,6 +178,14 @@ export class GameScene extends Phaser.Scene {
   /** UI przerwy między falami: karty ulepszeń + banery faz. */
   private breakUi: Phaser.GameObjects.GameObject[] = [];
   private pendingUpgradePick = -1;
+  /** Komendy ekwipunku z ekranu plecaka (jednorazowe; działają tylko w przerwie). */
+  private pendingEquipFromBag = -1;
+  private pendingEquipToSlot = -1;
+  private pendingUnequipSlot = -1;
+  private pendingDropBag = -1;
+  /** Komendy sklepu (przerwa): indeks pozycji do kupna, flaga rerollu. */
+  private pendingShopBuy = -1;
+  private pendingShopReroll = false;
   private banner!: Phaser.GameObjects.Text;
   private paused = false;
   private endScreenShown = false;
@@ -165,6 +197,8 @@ export class GameScene extends Phaser.Scene {
     m: Phaser.Input.Keyboard.Key;
     n: Phaser.Input.Keyboard.Key;
     t: Phaser.Input.Keyboard.Key;
+    i: Phaser.Input.Keyboard.Key;
+    b: Phaser.Input.Keyboard.Key;
     q: Phaser.Input.Keyboard.Key;
     w: Phaser.Input.Keyboard.Key;
     e: Phaser.Input.Keyboard.Key;
@@ -183,8 +217,13 @@ export class GameScene extends Phaser.Scene {
     super('game');
   }
 
-  init(data: { classId?: string; coop?: CoopInit }): void {
+  /** Wybrana mapa. Dziś tylko `station` (obecna arena) — na razie nie zmienia
+   * symulacji; przekazana pod przyszłą generację świata zależną od mapy. */
+  private mapId: string = DEFAULT_MAP_ID;
+
+  init(data: { classId?: string; mapId?: string; coop?: CoopInit }): void {
     this.cls = classById(data.classId ?? DEFAULT_CLASS_ID) ?? CLASSES[0];
+    this.mapId = data.mapId ?? DEFAULT_MAP_ID;
     this.coop = data.coop ?? null;
   }
 
@@ -221,8 +260,10 @@ export class GameScene extends Phaser.Scene {
         this.session?.dispose();
       });
     } else {
-      // Single-player = jednoelementowa drużyna.
-      this.world = new World(Date.now() >>> 0, [this.cls], [metaBonusesFrom(save)]);
+      // Single-player = jednoelementowa drużyna. Mapa (wybrana po klasie)
+      // steruje harmonogramem bossów. Co-op zostaje na domyślnej (station),
+      // bo mapId musiałby być zsynchronizowany po sieci — osobny temat.
+      this.world = new World(Date.now() >>> 0, [this.cls], [metaBonusesFrom(save)], this.mapId);
       this.localIndex = 0;
       this.session = null;
     }
@@ -309,12 +350,12 @@ export class GameScene extends Phaser.Scene {
     this.wallGfx = this.add.graphics().setDepth(1);
     this.fxGfx = this.add.graphics().setDepth(4).setBlendMode(Phaser.BlendModes.ADD);
     this.bossBar = this.add.graphics().setScrollFactor(0).setDepth(15);
-    this.bossName = this.add
-      .text(0, 0, '', { fontFamily: 'monospace', fontSize: '18px', color: '#ffffff' })
-      .setOrigin(0.5)
-      .setScrollFactor(0)
-      .setDepth(16)
-      .setVisible(false);
+    for (let i = 0; i < 4; i++) {
+      this.bossNames.push(
+        this.add.text(0, 0, '', { fontFamily: 'monospace', fontSize: '16px', color: '#ffffff' })
+          .setOrigin(0.5).setScrollFactor(0).setDepth(16).setVisible(false),
+      );
+    }
     for (let i = 0; i < C.MOB_CAP; i++) {
       this.mobSprites.push(this.add.image(0, 0, ENEMY_SHAPES[0].key).setVisible(false).setDepth(2));
     }
@@ -395,8 +436,50 @@ export class GameScene extends Phaser.Scene {
     );
     this.events.once('shutdown', () => this.minimap.destroy());
 
+    // Graficzny HUD (paski HP/XP, ikony QWER, buffy) — moduł jak minimapa.
+    this.hudGfx = new Hud(this);
+    this.events.once('shutdown', () => this.hudGfx.destroy());
+
+    // Floating liczby obrażeń + śledzenie HP wrogów między klatkami.
+    this.damageNumbers = new DamageNumbers(this);
+    this.events.once('shutdown', () => this.damageNumbers.destroy());
+    this.mobPrevHp = new Array(C.MOB_CAP).fill(0);
+
+    // Winieta na niski HP: czerwony rozciągnięty na ekran, alpha z życia gracza.
+    makeVignette(this, 'vignette');
+    this.vignette = this.add
+      .image(cam.width / 2, cam.height / 2, 'vignette')
+      .setScrollFactor(0)
+      .setDepth(9)
+      .setTint(0xff2965)
+      .setAlpha(0)
+      .setDisplaySize(cam.width, cam.height);
+
+    // Ekran ekwipunku — klik w kaflu ustawia pending komendy (konsumowane w break).
+    this.inventory = new InventoryScreen(
+      this,
+      (bagIndex) => { this.pendingEquipFromBag = bagIndex; this.pendingEquipToSlot = -1; },
+      (slotIndex) => { this.pendingUnequipSlot = slotIndex; },
+      (bagIndex) => { this.pendingDropBag = bagIndex; },
+    );
+    this.events.once('shutdown', () => this.inventory.destroy());
+
+    // Menu pauzy + statystyki (ESC).
+    this.pauseScreen = new PauseScreen(this, () => this.scene.start('class-select'));
+    this.events.once('shutdown', () => this.pauseScreen.destroy());
+
+    // Sklep runowy (przerwa) — klik ustawia pending komendy (konsumowane w break).
+    this.shopPanel = new ShopPanel(
+      this,
+      (i) => { this.pendingShopBuy = i; },
+      () => { this.pendingShopReroll = true; },
+    );
+    this.events.once('shutdown', () => this.shopPanel.destroy());
+
+    // Tekstowa resztka HUD-u przy dolnej krawędzi: sterowanie, nag, celowanie.
     this.hud = this.add
-      .text(12, 10, '', { fontFamily: 'monospace', fontSize: '16px', color: '#39ff14' })
+      .text(12, 10, '', { fontFamily: 'monospace', fontSize: '13px', color: '#8fa3b8', lineSpacing: 2 })
+      .setOrigin(0, 1)
       .setScrollFactor(0)
       .setDepth(10);
 
@@ -431,6 +514,8 @@ export class GameScene extends Phaser.Scene {
       // Wyciszenie pod N, bo M zajmuje dev-spawn mobków.
       n: kb.addKey(Phaser.Input.Keyboard.KeyCodes.N),
       t: kb.addKey(Phaser.Input.Keyboard.KeyCodes.T),
+      i: kb.addKey(Phaser.Input.Keyboard.KeyCodes.I),
+      b: kb.addKey(Phaser.Input.Keyboard.KeyCodes.B),
       // Skille: Q teraz, W/E/R w miarę projektowania kolejnych.
       q: kb.addKey(Phaser.Input.Keyboard.KeyCodes.Q),
       w: kb.addKey(Phaser.Input.Keyboard.KeyCodes.W),
@@ -448,6 +533,12 @@ export class GameScene extends Phaser.Scene {
     this.paused = false;
     this.endScreenShown = false;
     this.pendingUpgradePick = -1;
+    this.pendingEquipFromBag = -1;
+    this.pendingEquipToSlot = -1;
+    this.pendingUnequipSlot = -1;
+    this.pendingDropBag = -1;
+    this.pendingShopBuy = -1;
+    this.pendingShopReroll = false;
     this.breakUi = [];
 
     this.showBanner(`WAVE 1`, 1400);
@@ -533,7 +624,7 @@ export class GameScene extends Phaser.Scene {
     // skillach „najpierw wyceluj, potem zatwierdź" byłoby nie do grania.
     // W przerwie i przy otwartym drzewku skille są wyłączone.
     const inBreak = this.world.phase === 'break';
-    const uiBlocking = inBreak || this.talentPanelOpen;
+    const uiBlocking = inBreak || this.talentPanelOpen || this.inventory.isOpen();
     // Pierwszy gotowy slot, którego klawisz właśnie wciśnięto (Q/W/E).
     //
     // Wciśnięcie ZAPAMIĘTUJEMY, zamiast używać od razu: `JustDown` jest
@@ -590,12 +681,20 @@ export class GameScene extends Phaser.Scene {
     const dash = !uiBlocking && this.pendingDash;
 
     // Wybór ulepszenia: klik w kartę (ustawia pendingUpgradePick) albo klawisze 1-4.
-    if (inBreak) {
+    // GDY otwarty jest panel talentów (T) lub plecak (I), blokujemy wybór karty
+    // ORAZ sklep — inaczej klik w talent/ekwipunek „przecieka" na kartę pod
+    // spodem i przypadkiem rozpoczyna kolejną falę.
+    const breakUiBlocked = this.talentPanelOpen || this.inventory.isOpen() || this.shopPanel.isOpen();
+    if (inBreak && !breakUiBlocked) {
       const numberKeys = [this.keys.one, this.keys.two, this.keys.three, this.keys.four];
       for (let i = 0; i < Math.min(numberKeys.length, this.me.upgradeChoices.length); i++) {
         if (Phaser.Input.Keyboard.JustDown(numberKeys[i])) this.pendingUpgradePick = i;
       }
     }
+    // Panel talentów/plecak/sklep blokują wybór karty (żeby klik w UI nie
+    // „przeciekł" na kartę pod spodem i nie wystartował fali). Shop-pending NIE
+    // zerujemy — sklep sam nim zarządza (i tak jest interaktywny tylko otwarty).
+    if (breakUiBlocked) this.pendingUpgradePick = -1;
     // Wyborów NIE kasujemy tutaj — robi to `update()` po tym, jak symulacja
     // je faktycznie skonsumowała (patrz komentarz przy `tickBefore`).
     const pick = this.pendingUpgradePick;
@@ -604,8 +703,8 @@ export class GameScene extends Phaser.Scene {
     return {
       targetX: cursor.x,
       targetY: cursor.y,
-      // Z otwartym panelem nie chodzimy — klik w talent nie ma przestawiać postaci.
-      hasTarget: rmb && !this.talentPanelOpen,
+      // Z otwartym panelem/plecakiem/sklepem nie chodzimy — klik w UI nie przestawia postaci.
+      hasTarget: rmb && !this.talentPanelOpen && !this.inventory.isOpen() && !this.shopPanel.isOpen(),
       skillCast,
       aimX: cursor.x,
       aimY: cursor.y,
@@ -613,6 +712,15 @@ export class GameScene extends Phaser.Scene {
       debugSpawn: this.keys.m.isDown,
       upgradePick: pick,
       talentPick,
+      // Komendy ekwipunku z ekranu plecaka — działają w KAŻDEJ fazie
+      // (handleGearCommands jest w pętli step(), nie tylko w break).
+      equipFromBag: this.pendingEquipFromBag,
+      equipToSlot: this.pendingEquipToSlot,
+      unequipSlot: this.pendingUnequipSlot,
+      dropBag: this.pendingDropBag,
+      // Sklep tylko w przerwie (handleShop jest w stepBreak).
+      shopBuy: inBreak ? this.pendingShopBuy : -1,
+      shopReroll: inBreak && this.pendingShopReroll,
     };
   }
 
@@ -809,42 +917,48 @@ export class GameScene extends Phaser.Scene {
   /** Pasek HP bossa u góry ekranu + komunikat przy zmianie fazy. */
   private drawBossBar(): void {
     const w = this.world;
-    const boss = w.boss;
     this.bossBar.clear();
-    if (!boss || w.bossMaxHp <= 0) {
-      if (this.bossName.visible) this.bossName.setVisible(false);
-      return;
+
+    // Wszyscy ŻYWI bossowie tej fali — po jednym pasku (fala 9 crater = 3 naraz).
+    // `bossIndex >= 0` odróżnia żywego bossa od slotu przejętego przez zwykłego
+    // moba, a `BOSSES[...]` chroni przed wyjątkiem w renderze (błąd z 2026-07-20).
+    const bosses: Mob[] = [];
+    for (const i of w.bossMobIndices) {
+      const m = w.mobs[i];
+      if (m && m.alive && m.bossIndex >= 0 && BOSSES[m.bossIndex]) bosses.push(m);
     }
 
-    // Bezpiecznik: gdyby indeks bossa był nieprawidłowy, NIE wolno rzucić
-    // wyjątkiem — wyjątek w renderze przerywa całą pętlę gry i wygląda dla
-    // gracza jak zawieszenie (tak właśnie objawiał się błąd z 2026-07-20).
-    const def = BOSSES[boss.bossIndex];
-    if (!def) {
-      if (this.bossName.visible) this.bossName.setVisible(false);
-      return;
-    }
     const cam = this.cameras.main;
-    const barW = Math.min(620, cam.width - 120);
-    const barH = 16;
+    const barW = Math.min(560, cam.width - 140);
+    const barH = 13;
     const x = cam.width / 2 - barW / 2;
-    const y = 74;
-    const frac = Math.max(0, Math.min(1, boss.hp / w.bossMaxHp));
+    const top = 58;
+    const rowH = 26;
 
-    this.bossBar
-      .fillStyle(0x000000, 0.65)
-      .fillRect(x - 2, y - 2, barW + 4, barH + 4)
-      .fillStyle(0x2a0d1a, 1)
-      .fillRect(x, y, barW, barH)
-      .fillStyle(def.color, 1)
-      .fillRect(x, y, barW * frac, barH)
-      .lineStyle(2, def.color, 0.9)
-      .strokeRect(x, y, barW, barH);
-
-    this.bossName
-      .setText(`${def.name}   ${Math.ceil(boss.hp)} / ${Math.ceil(w.bossMaxHp)}`)
-      .setPosition(cam.width / 2, y - 16)
-      .setVisible(true);
+    for (let k = 0; k < this.bossNames.length; k++) {
+      const m = bosses[k];
+      const name = this.bossNames[k];
+      if (!m) {
+        if (name.visible) name.setVisible(false);
+        continue;
+      }
+      const def = BOSSES[m.bossIndex];
+      const y = top + k * rowH;
+      const frac = Math.max(0, Math.min(1, m.maxHp > 0 ? m.hp / m.maxHp : 0));
+      this.bossBar
+        .fillStyle(0x000000, 0.6)
+        .fillRect(x - 2, y - 2, barW + 4, barH + 4)
+        .fillStyle(0x2a0d1a, 1)
+        .fillRect(x, y, barW, barH)
+        .fillStyle(def.color, 1)
+        .fillRect(x, y, barW * frac, barH)
+        .lineStyle(2, def.color, 0.9)
+        .strokeRect(x, y, barW, barH);
+      name
+        .setText(`${def.name}   ${Math.ceil(m.hp)} / ${Math.ceil(m.maxHp)}`)
+        .setPosition(cam.width / 2, y - 9)
+        .setVisible(true);
+    }
 
     // Wejście w nową fazę — krzyczymy o tym na środku ekranu.
     if (w.bossPhaseTick !== this.lastSeenBossPhaseTick) {
@@ -1099,11 +1213,18 @@ export class GameScene extends Phaser.Scene {
   }
 
   private showPickupText(def: (typeof ITEMS)[number]): void {
+    this.showFloatingLabel(def.name, def.color);
+  }
+
+  /** Floating etykieta nad graczem (zebranie romba/gearu), znika tweenem. */
+  private showFloatingLabel(text: string, color: number): void {
     const label = this.add
-      .text(this.playerSprite.x, this.playerSprite.y - 26, def.name, {
+      .text(this.playerSprite.x, this.playerSprite.y - 26, text, {
         fontFamily: 'monospace',
         fontSize: '15px',
-        color: '#' + def.color.toString(16).padStart(6, '0'),
+        color: '#' + color.toString(16).padStart(6, '0'),
+        stroke: '#05070d',
+        strokeThickness: 3,
       })
       .setOrigin(0.5)
       .setDepth(9);
@@ -1127,7 +1248,7 @@ export class GameScene extends Phaser.Scene {
     // Koniec runu: śmierć albo przetrwanie wszystkich fal.
     if (w.isRunOver) {
       this.showEndScreen();
-      if (this.keys.r.isDown) this.scene.restart({ classId: this.cls.id });
+      if (this.keys.r.isDown) this.scene.restart({ classId: this.cls.id, mapId: this.mapId });
       if (this.keys.c.isDown) this.scene.start('class-select');
       if (this.keys.l.isDown) this.scene.start('meta');
       return;
@@ -1142,17 +1263,30 @@ export class GameScene extends Phaser.Scene {
       else this.clearTalentPanel();
     }
 
+    // Ekwipunek (I) — overlay jak drzewko talentów; zarządzanie działa w przerwie.
+    if (Phaser.Input.Keyboard.JustDown(this.keys.i)) {
+      this.inventory.toggle();
+      sfx.uiClick();
+    }
+
+    // Sklep (B) — pełnoekranowy overlay, TYLKO w przerwie.
+    if (Phaser.Input.Keyboard.JustDown(this.keys.b) && w.phase === 'break') {
+      this.shopPanel.toggle();
+      sfx.uiClick();
+    }
+
     // Wyciszenie (N) działa też w pauzie — stąd sprawdzenie przed `return`.
     if (Phaser.Input.Keyboard.JustDown(this.keys.n)) {
       this.showBanner(sfx.toggleMute() ? 'SOUND OFF' : 'SOUND ON', 900);
     }
 
-    // Pauza (ESC) — symulacja stoi, render dalej rysuje ostatni stan.
+    // Pauza (ESC) → menu pauzy + ekran statystyk. Symulacja stoi; render rysuje
+    // ostatni stan. `paused` mirroruje stan ekranu, więc przycisk RESUME (bez ESC)
+    // też wznawia. Przyciski działają przez input Phasera mimo wczesnego return.
     if (Phaser.Input.Keyboard.JustDown(this.keys.esc)) {
-      this.paused = !this.paused;
-      if (this.paused) this.showBanner('PAUSED\nESC to resume', 0);
-      else this.hideBanner();
+      this.pauseScreen.toggle(this.me);
     }
+    this.paused = this.pauseScreen.isOpen();
     if (this.paused) return;
 
     const wasBreak = w.phase === 'break';
@@ -1186,6 +1320,12 @@ export class GameScene extends Phaser.Scene {
     if (w.tick !== tickBefore) {
       this.pendingUpgradePick = -1;
       this.pendingTalentPick = -1;
+      this.pendingEquipFromBag = -1;
+      this.pendingEquipToSlot = -1;
+      this.pendingUnequipSlot = -1;
+      this.pendingDropBag = -1;
+      this.pendingShopBuy = -1;
+      this.pendingShopReroll = false;
       this.pendingSkillCast = -1;
       this.pendingDash = false;
     }
@@ -1214,9 +1354,12 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.renderWorld(this.accumulator / C.TICK_DT);
+    this.damageNumbers.update(deltaMs);
     this.refreshTalentPanel();
     this.updateFogAndMinimap();
     this.updateHud();
+    this.inventory.update(this.me);
+    this.shopPanel.update(this.me, w.phase === 'break');
     this.updateNetStatus();
   }
 
@@ -1412,6 +1555,7 @@ export class GameScene extends Phaser.Scene {
           s.setVisible(false);
         }
         this.mobWasAlive[i] = false;
+        this.mobPrevHp[i] = 0; // slot poola może się odrodzić — zeruj bazę delty
         continue;
       }
 
@@ -1422,6 +1566,11 @@ export class GameScene extends Phaser.Scene {
         ).setVisible(true);
       }
       this.mobWasAlive[i] = true;
+
+      // Damage numbers: spadek HP wroga od poprzedniej klatki → liczba nad nim.
+      const prevHp = this.mobPrevHp[i];
+      if (prevHp > 0 && m.hp < prevHp) this.damageNumbers.spawn(m.x, m.y, prevHp - m.hp);
+      this.mobPrevHp[i] = m.hp;
 
       // Boss: własny kolor i skala, reszta jak przy zwykłym wrogu.
       if (m.bossIndex >= 0) {
@@ -1670,19 +1819,34 @@ export class GameScene extends Phaser.Scene {
         if (s.visible) s.setVisible(false);
         continue;
       }
-      if (!s.visible) s.setVisible(true).setTint(ITEMS[p.defIndex].color);
+      // Gear na ziemi bierze kolor swojego rarity (Common/Rare/Epic); romb —
+      // kolor swojego typu. Tint ustawiany raz, przy pojawieniu slotu.
+      if (!s.visible) {
+        s.setVisible(true).setTint(p.gear ? RARITIES[p.gear.rarity].color : ITEMS[p.defIndex].color);
+      }
       s.setPosition(p.x, p.y);
       const pulse = 1 + Math.sin(w.tick * 0.2 + i) * 0.12;
       s.setScale(pulse);
       s.setAlpha(p.ttl < 90 && Math.floor(p.ttl / 5) % 2 === 0 ? 0.35 : 1);
     }
 
-    // Floating text przy zebraniu itemu.
+    // Floating text przy zebraniu romba.
     if (me.lastPickupTick !== this.lastSeenPickupTick) {
       this.lastSeenPickupTick = me.lastPickupTick;
       if (me.lastPickupDefIndex >= 0) {
         this.showPickupText(ITEMS[me.lastPickupDefIndex]);
         sfx.pickup();
+      }
+    }
+
+    // Zebranie GEARU: osobny, jaśniejszy sygnał (dźwięk + nazwa w kolorze rarity),
+    // żeby gracz WIEDZIAŁ, że wpadła część do plecaka (nie znika po cichu).
+    if (me.lastGearTick !== this.lastSeenGearTick) {
+      this.lastSeenGearTick = me.lastGearTick;
+      if (me.lastGearTick >= 0) {
+        const color = RARITIES[me.lastGearRarity]?.color ?? 0xffffff;
+        this.showFloatingLabel(`+ ${me.lastGearName}`, color);
+        sfx.gear();
       }
     }
 
@@ -1882,98 +2046,34 @@ export class GameScene extends Phaser.Scene {
   private updateHud(): void {
     const w = this.world;
     const me = this.me;
-    // Wszystkie obsadzone sloty na pasku — dzik-inżynier ma trzy naraz.
-    const skill = me.skillIds
-      .map((id, i) => {
-        if (!id) return '';
-        const def = w.skillOf(me, i);
-        if (!def) return '';
-        const cd = me.skillCooldowns[i];
-        return cd <= 0
-          ? `[${SKILL_KEYS[i]}] ${def.name}`
-          : `[${SKILL_KEYS[i]}] ${(cd * C.TICK_DT).toFixed(1)}s`;
-      })
-      .filter(Boolean)
-      .join('  ');
-    // Doskok ma własny cooldown, więc i własny wskaźnik — inaczej gracz nie
-    // wie, czy ucieczka jest dostępna.
-    const dashName = w.dashOf(me).name;
-    const dashState =
-      me.dashCooldown <= 0
-        ? `${dashName} ready [SPACE]`
-        : `${dashName} ${(me.dashCooldown * C.TICK_DT).toFixed(1)}s`;
-    const shield = me.shieldCharges > 0 ? `  |  SHIELD ${me.shieldCharges}` : '';
-    // Wataha: licznik i liczba swoich obok. Bez tego gracz nie widzi ani
-    // tego, że bonus rośnie, ani tego, że właśnie go stracił odbiegając.
-    const pack = me.packLeader
-      ? `  |  PACK ${me.packInstinct}/${ALPHA_PACK.instinctMax}  allies ${me.allyCount}`
-      : '';
-    // Druga linia: statystyki zmienione przez itemy (pokazujemy tylko niezerowe).
-    const stats: string[] = [];
-    if (me.armorFlat > 0) stats.push(`ARM ${me.armorFlat}`);
-    if (me.damageMult !== 1) stats.push(`DMG +${Math.round((me.damageMult - 1) * 100)}%`);
-    if (me.attackSpeedMult !== 1) stats.push(`ASPD +${Math.round((me.attackSpeedMult - 1) * 100)}%`);
-    if (me.rangeMult !== 1) stats.push(`RNG +${Math.round((me.rangeMult - 1) * 100)}%`);
-    if (me.speedMult !== 1) stats.push(`SPD +${Math.round((me.speedMult - 1) * 100)}%`);
-    if (me.cooldownMult !== 1) stats.push(`CDR ${Math.round((1 - me.cooldownMult) * 100)}%`);
-    if (me.regenPerSec > 0) stats.push(`REG ${me.regenPerSec.toFixed(1)}/s`);
-    if (me.leechHealPerKill > 0) stats.push(`LCH ${me.leechHealPerKill.toFixed(1)}`);
-    if (me.thornsDamage > 0) stats.push(`THN ${me.thornsDamage}`);
-    if (me.knockbackMult !== 1) stats.push(`KB +${Math.round((me.knockbackMult - 1) * 100)}%`);
-    if (me.magnetBonus > 0) stats.push(`MAG +${me.magnetBonus}`);
+    // Graficzny HUD rysuje paski HP/XP, ikony QWER z cooldownami, buffy, zasób.
+    this.hudGfx.update(w, me);
 
-    const waveLeft = Math.max(0, w.waveTicksLeft * C.TICK_DT);
-    const wavePart =
-      w.phase === 'break'
-        ? `BREAK — pick an upgrade`
-        : `WAVE ${w.wave}/${WAVE_CONFIG.totalWaves}  ${waveLeft.toFixed(0)}s`;
-    // W co-opie pokazujemy stan drużyny; w single-playerze linia znika.
-    const team =
-      w.players.length > 1
-        ? `  |  team ${w.livingPlayers.length}/${w.players.length}`
-        : '';
+    // Winieta czerwienieje poniżej 40% HP (kierunek: trudność przez reakcję).
+    const maxHp = w.maxHpOf(me);
+    const hpFrac = maxHp > 0 ? me.hp / maxHp : 1;
+    const danger = Math.max(0, (0.4 - hpFrac) / 0.4);
+    this.vignette.setAlpha(me.dead ? 0 : danger * 0.7);
 
-    // Nierozdane punkty wołają o uwagę — bez tego gracz gra słabszą postacią
-    // i nawet nie wie dlaczego.
-    const maxed = me.level >= PROGRESSION.maxLevel;
-    const lvl =
-      `LVL ${me.level}${maxed ? ' MAX' : ''}` +
-      (me.specIndex < 0 && me.level >= PROGRESSION.specLevel
-        ? '  ** CHOOSE SPECIALIZATION — [T] **'
+    // Tekstowa resztka przy dolnej krawędzi — rzeczy z natury tekstowe: nag
+    // o nierozdanych punktach, tryb celowania, sekwencje combo, sterowanie.
+    const nag =
+      me.specIndex < 0 && me.level >= PROGRESSION.specLevel
+        ? '** CHOOSE SPECIALIZATION — press T **'
         : me.talentPoints > 0
-          ? `  ** ${me.talentPoints} TALENT POINT(S) — [T] **`
-          : '');
-
-    // Specjalizacja combo nie ma umiejętności w slotach, więc pasek pokazuje
-    // sekwencje zamiast pustego miejsca.
-    const combo = this.comboHudText(me);
-    // Wzmocnienie i gotowy skok dotyczą OBU rodzajów gałęzi, więc doklejamy
-    // je niezależnie od tego, czy gracz gra na combo czy na zwykłych slotach.
-    const blink =
-      me.blinkTicks > 0
-        ? `   ** BLINK READY ${(me.blinkTicks * C.TICK_DT).toFixed(1)}s **`
-        : '';
-    // Stop czasu jest stanem ŚWIATA, nie gracza — dotyczy całej drużyny.
-    const stop =
-      w.timeStopTicks > 0
-        ? `   ** TIME STOPPED ${(w.timeStopTicks * C.TICK_DT).toFixed(1)}s **`
-        : '';
-    // Tryb celowania musi krzyczeć: gracz wcisnął klawisz i NIC się nie stało,
-    // więc bez tego wygląda to jak zepsuty skill.
-    const celowanie =
+          ? `** ${me.talentPoints} TALENT POINT(S) — press T **`
+          : '';
+    // Combo specy mają puste sloty QWER, więc sekwencje pokazujemy tekstem.
+    const combo = this.comboHudText(me) + this.chainBuffText(me);
+    const aiming =
       this.aimingSlot >= 0
-        ? `   >> PLACING ${w.skillOf(me, this.aimingSlot)?.name ?? ''} — LMB to cast, RMB to cancel <<`
+        ? `>> PLACING ${w.skillOf(me, this.aimingSlot)?.name ?? ''} — LMB cast · RMB cancel <<`
         : '';
-    const akcje = (combo || skill) + this.chainBuffText(me) + blink + stop + celowanie;
-    const podpowiedz = combo ? 'Q/W/E: combos' : 'Q: slash';
-
-    this.hud.setText(
-      `${wavePart}  |  ${this.cls.name}  |  ${lvl}  |  FPS ${Math.round(this.game.loop.actualFps)}  |  ` +
-        `mobs ${w.aliveMobs}  |  HP ${Math.round(me.hp)}/${w.maxHpOf(me)}  |  kills ${me.kills}${team}  |  ` +
-        `${akcje}  |  ${dashState}${shield}${pack}\n` +
-        `items ${me.totalItemsCollected}${stats.length ? '  |  ' + stats.join('  ') : ''}\n` +
-        `RMB: move   ${podpowiedz}   SPACE: ${dashName.toLowerCase()}   T: talents   ESC: pause   N: sound   hold M: dev spawn`,
-    );
+    const dashName = w.dashOf(me).name;
+    const controls =
+      `RMB move · Q/W/E/R skills · SPACE ${dashName.toLowerCase()} · I gear · T talents · ESC pause · N sound`;
+    const lines = [nag, aiming, combo, controls].filter(Boolean);
+    this.hud.setPosition(12, this.scale.height - 8).setText(lines.join('\n'));
   }
 
   /**

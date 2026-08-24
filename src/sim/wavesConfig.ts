@@ -24,18 +24,22 @@ export const WAVE_CONFIG = {
   eliteWaveMultiplier: 1.5,
 
   /** Ilu wrogów naraz w 1. fali. */
-  mobsBase: 24,
+  mobsBase: 30,
   /** O ilu wrogów więcej z każdą kolejną falą. */
-  mobsPerWave: 12,
+  mobsPerWave: 16,
 
   /**
    * Wrogowie rosną w siłę z każdą falą — bez tego gra była „albo giniesz na
    * fali 2, albo wygrywasz na spokojnie", bo moc gracza rosła wykładniczo
    * (ulepszenia + itemy), a wrogowie tylko się mnożyli.
    * Wartości to procent PONAD bazę z enemies.ts, za każdą falę po pierwszej.
+   *
+   * PODKRĘCONE 2026-08-23 (gra dawała się wygrać „z marszu" mocnymi specami):
+   * mocniejszy nacisk na OBRAŻENIA (karzą za błędy — kierunek „trudność przez
+   * reakcję"), plus wyższe HP i większa gęstość hordy. Knoby do dalszego strojenia.
    */
-  enemyHpPercentPerWave: 15,
-  enemyDamagePercentPerWave: 7,
+  enemyHpPercentPerWave: 22,
+  enemyDamagePercentPerWave: 12,
 
   /**
    * O ile procent więcej wrogów za KAŻDEGO dodatkowego gracza w co-opie.
@@ -68,6 +72,8 @@ export const WAVE_DURATION_TICKS = Math.round(WAVE_CONFIG.waveDurationSeconds * 
  */
 export const BOSS_WAVES: Record<number, string> = {
   5: 'void-warden',
+  7: 'plasma-reaver',
+  9: 'hive-colossus',
   10: 'hive-queen',
 };
 

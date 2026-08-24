@@ -9,8 +9,12 @@
  */
 
 export const DROP_CONFIG = {
-  /** Szansa (w %), że zabity mob upuści item. */
-  dropChancePercent: 8,
+  /**
+   * Szansa (w %), że zabity mob upuści ROMBA. Obniżona z 8 (decyzja 2026-08-22):
+   * romby zostają, ale mają być rzadsze, bo dołączył do nich gear (`GEAR_DROP`).
+   * Docelowe strojenie proporcji gear/romb → Faza 6.
+   */
+  dropChancePercent: 5,
   /** Po ilu sekundach item zniknie z ziemi. */
   despawnSeconds: 12,
   /** Bazowy promień zbierania (px) — Grav Magnet go powiększa. */
@@ -53,7 +57,9 @@ export const ITEM_CAPS = {
  *  - speed:       +`value`% prędkości ruchu
  *  - attackSpeed: auto-atak szybszy o `value`%
  *  - range:       +`value`% zasięgu auto-ataku i skilla
- *  - strength:    +`value`% obrażeń auto-ataku i skilla
+ *  - strength:    +`value`% obrażeń auto-ataku i skilla (UNIWERSALNY — bije oba kanały)
+ *  - attackDamage:+`value`% obrażeń TYLKO auto-ataku (oś gearu „pod auto")
+ *  - skillPower:  +`value`% obrażeń TYLKO umiejętności (oś gearu „pod skille")
  *  - overshield:  +`value` ładunków bariery (1 ładunek = pochłania całe 1 trafienie)
  *  - regen:       +`value` HP na sekundę
  *  - maxHp:       +`value` maks. HP (i tyle samo leczenia od razu)
@@ -74,6 +80,11 @@ export type ItemKind =
   | 'attackSpeed'
   | 'range'
   | 'strength'
+  /* Oś „auto vs skill" (gear, `gearConfig.ts`). `strength` bije oba kanały;
+     te dwa rozdzielają je, żeby część mogła być czysto pod auto-atak LUB
+     pod moc umiejętności. Wpięcie: `applyMelee` (auto) i `skillDamageOf` (skille). */
+  | 'attackDamage'
+  | 'skillPower'
   | 'overshield'
   | 'regen'
   | 'maxHp'

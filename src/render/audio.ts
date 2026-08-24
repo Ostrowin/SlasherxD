@@ -207,6 +207,14 @@ export class Sfx {
     this.tone({ from: 1320, dur: 0.11, gain: 0.11, wave: 'sine', delay: 0.06 });
   }
 
+  /** Podniesienie GEARU: trójdźwięk „loot", jaśniejszy i dłuższy niż romb. */
+  gear(): void {
+    if (this.tooSoon('gear', 60)) return;
+    this.tone({ from: 660, dur: 0.09, gain: 0.11, wave: 'triangle' });
+    this.tone({ from: 990, dur: 0.1, gain: 0.1, wave: 'triangle', delay: 0.06 });
+    this.tone({ from: 1480, dur: 0.16, gain: 0.1, wave: 'sine', delay: 0.12 });
+  }
+
   /** Start fali: wznoszący akord — sygnał „zaczynamy". */
   waveStart(): void {
     this.tone({ from: 300, to: 600, dur: 0.5, gain: 0.13, wave: 'sawtooth' });

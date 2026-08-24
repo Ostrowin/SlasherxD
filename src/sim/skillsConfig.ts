@@ -453,9 +453,11 @@ export const SKILLS: SkillDef[] = [
     name: 'SNIPER SHOT',
     rangeMult: 6.5,
     coneCos: 0.995,
-    damageMult: 6,
+    // ENORMOUS damage (buff 2026-08-24): wąski, daleki strzał ma być główną
+    // pięścią snipera — trudno trafić, więc nagroda musi być ogromna.
+    damageMult: 16,
     knockback: 40,
-    cooldownTicks: Math.round(3.5 * C.TICK_RATE),
+    cooldownTicks: Math.round(2.8 * C.TICK_RATE),
     friendlyFire: false,
   },
 ];
@@ -562,6 +564,27 @@ SKILLS.push(
     chainFalloff: 0.85,
     blastRadius: 90,
     cooldownTicks: Math.round(1.6 * C.TICK_RATE),
+  },
+  {
+    /**
+     * RAILSHOT (kret SNIPER, `W`) — szybki pocisk PRZEBIJAJĄCY linię wrogów
+     * (odbicia = przebicie na kolejnych). Druga spluwa snipera: krótki cooldown,
+     * pojedyncza linia. Obrażenia niosą `damageMult` (baza kreta niska).
+     */
+    id: 'railshot', kind: 'projectile', name: 'RAILSHOT',
+    speed: 780, damageMult: 4, count: 1, spreadRad: 0,
+    chains: 5, chainRange: 220, chainFalloff: 0.94, blastRadius: 0,
+    cooldownTicks: Math.round(1.6 * C.TICK_RATE),
+  },
+  {
+    /**
+     * ORBITAL BARRAGE (kret SNIPER, `R`) — ultimate: WACHLARZ ciężkich pocisków
+     * z małym AoE na każdym trafieniu. Zmiata grupę; długi cooldown.
+     */
+    id: 'orbital-barrage', kind: 'projectile', name: 'ORBITAL BARRAGE',
+    speed: 620, damageMult: 3.5, count: 7, spreadRad: 0.16,
+    chains: 2, chainRange: 200, chainFalloff: 0.9, blastRadius: 70,
+    cooldownTicks: Math.round(12 * C.TICK_RATE),
   },
   {
     /**

@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { ClassSelectScene } from './render/ClassSelectScene';
+import { MapSelectScene } from './render/MapSelectScene';
 import { MetaScene } from './render/MetaScene';
 import { CoopScene } from './render/CoopScene';
 import { GameScene } from './render/GameScene';
@@ -14,7 +15,7 @@ const game = new Phaser.Game({
     width: window.innerWidth,
     height: window.innerHeight,
   },
-  scene: [ClassSelectScene, MetaScene, CoopScene, GameScene],
+  scene: [ClassSelectScene, MapSelectScene, MetaScene, CoopScene, GameScene],
 });
 
 /**

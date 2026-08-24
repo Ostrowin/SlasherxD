@@ -416,7 +416,9 @@ const MOLE_SNIPER: TalentBranch = {
     // Wybór tej specjalizacji NATYCHMIAST podmienia Q: zamiast szerokiego
     // wachlarza w zwarciu gracz dostaje bardzo daleką, wąską wiązkę.
     specTier(
-      spec('mole-sniper', 'SNIPER', 'range', 20, 'Q becomes a long, narrow shot', { skills: ['sniper-shot'] }),
+      spec('mole-sniper', 'SNIPER', 'range', 20,
+        'Sniper kit — Q shot · W railshot · E turret · R barrage',
+        { skills: ['sniper-shot', 'railshot', 'totem-turret', 'orbital-barrage'] }),
     ),
     {
       requiresInBranch: 0,
