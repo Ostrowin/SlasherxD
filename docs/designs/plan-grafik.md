@@ -828,23 +828,23 @@ Lane A: narzędzia wypalania → szybki start/rig (wspólne `src/render/`). Lane
 ## Implementation Tasks
 Synthesized from this review's findings. Each task derives from a specific finding above.
 
-- [ ] **T1 (P1, human: ~4h / CC: ~20min)** — tools — Manifest `src/render/artManifest.ts` + atlasy per kategoria, skala 0.75, `#rim` tylko dla graczy
+- [x] **T1 (P1, human: ~4h / CC: ~20min)** — tools — Manifest `src/render/artManifest.ts` + atlasy per kategoria, skala 0.75, `#rim` tylko dla graczy
   - Surfaced by: R1 (D2), R3 (D4), Scope record D1, A2
   - Files: `src/render/artManifest.ts`, `tools/bakeArt.ts`, `tools/svg_gen/ws_heroes.py`, `src/render/heroArt.ts`
   - Verify: `npm run bake-art` + `npm test` (artCheck)
-- [ ] **T2 (P1, human: ~2h / CC: ~10min)** — render — Paleta 8 kolorów slotów (luminancja ≥ 0,35) dla `#rim` i `#team`
+- [x] **T2 (P1, human: ~2h / CC: ~10min)** — render — Paleta 8 kolorów slotów (luminancja ≥ 0,35) dla `#rim` i `#team`
   - Surfaced by: R2 (D3)
   - Files: `src/render/heroArt.ts`, `src/render/GameScene.ts`
   - Verify: `artCheck` (luminancja) + co-op 2 karty w podglądzie
-- [ ] **T3 (P1, human: ~3h / CC: ~15min)** — render — Szybki start DEV bez zmian w sim (`class`, `spec`, `wave`, `seed`)
+- [x] **T3 (P1, human: ~3h / CC: ~15min)** — render — Szybki start DEV bez zmian w sim (`class`, `spec`, `wave`, `seed`)
   - Surfaced by: R6 (D7), korekta R2-9
   - Files: `src/render/GameScene.ts`
   - Verify: `npm run dev` z `?dev=1&class=bear&spec=0&wave=5&seed=1`; `artCheck` na `dist/`
-- [ ] **T4 (P1, human: ~3h / CC: ~15min)** — tests — `bench/artCheck.ts` + `tsconfig.tools.json` w `npm test`
+- [x] **T4 (P1, human: ~3h / CC: ~15min)** — tests — `bench/artCheck.ts` + `tsconfig.tools.json` w `npm test`
   - Surfaced by: R7 (D8), R8 (D9), Section 3
   - Files: `bench/artCheck.ts`, `tsconfig.tools.json`, `package.json`
   - Verify: `npm test`
-- [ ] **T5 (P2, human: ~3h / CC: ~15min)** — tools — `grit.py`: blizny, łaty, rysy, `chipped()` jako `<mask>`
+- [x] **T5 (P2, human: ~3h / CC: ~15min)** — tools — `grit.py`: blizny, łaty, rysy, `chipped()` jako `<mask>`
   - Surfaced by: R4 (D5)
   - Files: `tools/svg_gen/grit.py`, `tools/svg_gen/ws_heroes.py`
   - Verify: `npm run bake-art -- --sheet` (kontur nienaruszony)

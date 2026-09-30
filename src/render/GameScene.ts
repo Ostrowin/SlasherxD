@@ -18,6 +18,8 @@ import { loadSave, metaBonusesFrom, writeSave } from '../meta/save';
 import { makeGlowCircle, makeGlowPolygon, makeNeonGrid, makeStarfield, makeVignette } from './textures';
 import { FogOfWar } from './fog';
 import { HeroRig, hasHeroArt, preloadHeroArt } from './heroArt';
+import { PLAYER_COLORS } from './artManifest';
+import { applyDevStart, startFpsProbe, type DevStart } from './devStart';
 import { Minimap } from './Minimap';
 import { Hud } from './Hud';
 import { DamageNumbers } from './DamageNumbers';
@@ -223,11 +225,14 @@ export class GameScene extends Phaser.Scene {
   /** Wybrana mapa. Dziś tylko `station` (obecna arena) — na razie nie zmienia
    * symulacji; przekazana pod przyszłą generację świata zależną od mapy. */
   private mapId: string = DEFAULT_MAP_ID;
+  /** Szybki start do testów grafiki (`?dev=1`, tylko `npm run dev` — patrz `devStart.ts`). */
+  private dev: DevStart | null = null;
 
-  init(data: { classId?: string; mapId?: string; coop?: CoopInit }): void {
+  init(data: { classId?: string; mapId?: string; coop?: CoopInit; dev?: DevStart }): void {
     this.cls = classById(data.classId ?? DEFAULT_CLASS_ID) ?? CLASSES[0];
     this.mapId = data.mapId ?? DEFAULT_MAP_ID;
     this.coop = data.coop ?? null;
+    this.dev = import.meta.env.DEV ? (data.dev ?? null) : null;
   }
 
   preload(): void {
@@ -270,7 +275,9 @@ export class GameScene extends Phaser.Scene {
       // Single-player = jednoelementowa drużyna. Mapa (wybrana po klasie)
       // steruje harmonogramem bossów. Co-op zostaje na domyślnej (station),
       // bo mapId musiałby być zsynchronizowany po sieci — osobny temat.
-      this.world = new World(Date.now() >>> 0, [this.cls], [metaBonusesFrom(save)], this.mapId);
+      // Szybki start (DEV) ma stały seed — powtarzalny przebieg pod zrzuty i pomiar FPS.
+      const seed = this.dev ? this.dev.seed : Date.now() >>> 0;
+      this.world = new World(seed, [this.cls], [metaBonusesFrom(save)], this.mapId);
       this.localIndex = 0;
       this.session = null;
     }
@@ -281,6 +288,11 @@ export class GameScene extends Phaser.Scene {
     this.aimingSlot = -1;
     this.lmbWasDown = false;
     this.pendingTalentPick = -1;
+    if (import.meta.env.DEV && this.dev && !this.coop) {
+      // Fala i poziom przed pierwszym tickiem; specjalizacja idzie zwykłym inputem `talentPick`.
+      this.pendingTalentPick = applyDevStart(this.world, this.dev);
+      startFpsProbe(this, this.dev);
+    }
     this.pendingSkillCast = -1;
     this.pendingDash = false;
     this.talentUiSignature = '';
@@ -344,8 +356,9 @@ export class GameScene extends Phaser.Scene {
     this.input.mouse?.disableContextMenu();
 
     // Sprite na każdego gracza — koledzy z drużyny są widoczni w świecie.
-    this.playerRigs = this.world.players.map((p) =>
-      hasHeroArt(this, p.cls.id) ? new HeroRig(this, p.cls.id, p.cls.color) : null,
+    this.playerRigs = this.world.players.map((p, i) =>
+      // Obwódka i pas drużyny w kolorze SLOTU gracza (D3): dwóch niedźwiedzi w co-opie się rozróżnia.
+      hasHeroArt(this, p.cls.id) ? new HeroRig(this, p.cls.id, PLAYER_COLORS[i % PLAYER_COLORS.length]) : null,
     );
     this.playerSprites = this.world.players.map(
       (p, i) =>

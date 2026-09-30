@@ -6,13 +6,13 @@
 from common import *
 import bear as BR
 
-# Postać gracza jest większa niż dowódca TD (patrzysz na nią cały czas) — wypalamy gęściej.
-HERO_SCALE = 1.0
+# Skalę wypalenia ustala atlas w src/render/artManifest.ts (postacie: 0.75), nie SVG — dlatego bez data-scale.
+# Każdy nowy plik trzeba też dopisać do SPRITES/HEROES w manifeście, inaczej bakeArt go odrzuci.
 
 
 def hero(name, body, note, glow, grime=0.8):
     body_attrs = "; ".join(f"{x} {y} {r}" for x, y, r in glow)
-    svg("hero_" + name, body, anchor=(64, 136), scale=HERO_SCALE, grime=grime, note=note)
+    svg("hero_" + name, body, anchor=(64, 136), grime=grime, note=note)
     # data-glow dopisujemy do korzenia po fakcie — svg() z common.py jest wspólne z TD
     path = os.path.join(OUT, "hero_" + name + ".svg")
     with open(path, encoding="utf-8") as f:

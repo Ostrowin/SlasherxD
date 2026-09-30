@@ -1,0 +1,137 @@
+{
+ "frames": {
+  "hero_bear_gravity": {
+   "frame": {
+    "x": 4,
+    "y": 4,
+    "w": 100,
+    "h": 96
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 100,
+    "h": 96
+   },
+   "sourceSize": {
+    "w": 100,
+    "h": 96
+   },
+   "anchor": {
+    "x": 0.49,
+    "y": 0.9583333333333334
+   },
+   "glow": [
+    [
+     -34.5,
+     -63,
+     5.3
+    ],
+    [
+     36,
+     -55.5,
+     6.8
+    ],
+    [
+     19.5,
+     -70.5,
+     4.5
+    ]
+   ]
+  },
+  "hero_bear_gravity#team": {
+   "frame": {
+    "x": 112,
+    "y": 4,
+    "w": 100,
+    "h": 96
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 100,
+    "h": 96
+   },
+   "sourceSize": {
+    "w": 100,
+    "h": 96
+   },
+   "anchor": {
+    "x": 0.49,
+    "y": 0.9583333333333334
+   },
+   "glow": [
+    [
+     -34.5,
+     -63,
+     5.3
+    ],
+    [
+     36,
+     -55.5,
+     6.8
+    ],
+    [
+     19.5,
+     -70.5,
+     4.5
+    ]
+   ]
+  },
+  "hero_bear_gravity#rim": {
+   "frame": {
+    "x": 220,
+    "y": 4,
+    "w": 100,
+    "h": 96
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 100,
+    "h": 96
+   },
+   "sourceSize": {
+    "w": 100,
+    "h": 96
+   },
+   "anchor": {
+    "x": 0.49,
+    "y": 0.9583333333333334
+   },
+   "glow": [
+    [
+     -34.5,
+     -63,
+     5.3
+    ],
+    [
+     36,
+     -55.5,
+     6.8
+    ],
+    [
+     19.5,
+     -70.5,
+     4.5
+    ]
+   ]
+  }
+ },
+ "meta": {
+  "app": "tools/bakeArt.ts",
+  "image": "heroes.png",
+  "size": {
+   "w": 2048,
+   "h": 128
+  },
+  "scale": 1,
+  "bakeScale": 0.75
+ }
+}

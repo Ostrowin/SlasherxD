@@ -1,39 +1,38 @@
 import Phaser from 'phaser';
 import type { Player } from '../sim/world';
 import { makeGlowCircle } from './textures';
+import { ATLASES, HEROES, SCREEN_PX_PER_UNIT, heroFrameFor } from './artManifest';
 
 /**
- * Wektorowe postacie graczy z atlasu (grafika.md p. 5): źródła SVG w art/svg, wypalane przez
- * `npm run bake-art` do public/art/atlas.{png,json}. Na razie próbka — tylko niedźwiedź (Grawitant);
+ * Wektorowe postacie graczy z atlasu (plan: docs/designs/plan-grafik.md): źródła SVG w art/svg, wypalane
+ * przez `npm run bake-art` do public/art/heroes.{png,json}. Co ma grafikę, mówi `artManifest.ts`;
  * pozostałe klasy dalej rysują się świecącym pięciokątem.
  *
- * Postać to trzy warstwy w jednym atlasie (jedna tekstura = batching):
+ * Postać to warstwy z jednego atlasu (jedna tekstura = batching):
+ *   - obwódka `<klatka>#rim` pod spodem, barwiona kolorem slotu gracza (kontur z TD ginie na tle gry),
  *   - sprite bazowy (bez tintu — kolory są w rysunku),
- *   - maska drużyny `<klatka>#team` barwiona kolorem klasy,
+ *   - pas drużyny `<klatka>#team` barwiony tym samym kolorem slotu,
  *   - neon: poświata z `textures.ts` (blend ADD) w punktach `glow` klatki — NIE jest wypalana w sprite.
  */
 
-export const ATLAS_KEY = 'art';
+const ATLAS = ATLASES.heroes;
+export const ATLAS_KEY = ATLAS.key;
 
-/** Klasa → klatka atlasu. Próbka: niedźwiedź zawsze jako Grawitant, niezależnie od specjalizacji. */
-const HERO_FRAMES: Record<string, { frame: string; glow: number }> = {
-  bear: { frame: 'hero_bear_gravity', glow: 0xb070ff },
-};
-
-/** Piksele ekranu na piksel atlasu — postać ~60 px wzrostu, wyraźnie większa niż hitbox. */
-const DISPLAY_SCALE = 0.5;
+/** Piksele ekranu na piksel atlasu — atlas jest wypalany gęściej (0.75), niż go rysujemy (0.5 px/jedn.). */
+const DISPLAY_SCALE = SCREEN_PX_PER_UNIT / ATLAS.scale;
 /** Stopy leżą tyle pikseli pod środkiem hitboxu (sim liczy pozycję jako środek koła). */
 const FEET_OFFSET = 12;
 const GLOW_KEY = 'hero-glow';
 const GLOW_RADIUS = 8;
 
 export function preloadHeroArt(scene: Phaser.Scene): void {
-  scene.load.atlas(ATLAS_KEY, 'art/atlas.png', 'art/atlas.json');
+  scene.load.atlas(ATLAS_KEY, `art/${ATLAS_KEY}.png`, `art/${ATLAS_KEY}.json`);
 }
 
+/** Czy klasa ma wypaloną grafikę. Brak atlasu (bake nieuruchomiony) = `false` i pięciokąt. */
 export function hasHeroArt(scene: Phaser.Scene, classId: string): boolean {
-  const def = HERO_FRAMES[classId];
-  return !!def && scene.textures.exists(ATLAS_KEY) && scene.textures.get(ATLAS_KEY).has(def.frame);
+  const frame = heroFrameFor(classId, -1);
+  return !!frame && scene.textures.exists(ATLAS_KEY) && scene.textures.get(ATLAS_KEY).has(frame);
 }
 
 /**
@@ -43,6 +42,7 @@ export function hasHeroArt(scene: Phaser.Scene, classId: string): boolean {
  */
 export class HeroRig {
   readonly base: Phaser.GameObjects.Image;
+  private readonly rim: Phaser.GameObjects.Image | null;
   private readonly team: Phaser.GameObjects.Image | null;
   private readonly shadow: Phaser.GameObjects.Ellipse;
   private readonly glows: { img: Phaser.GameObjects.Image; x: number; y: number; r: number }[] = [];
@@ -52,27 +52,35 @@ export class HeroRig {
   /** Wysokość postaci nad środkiem hitboxu — tam idą paski HP kolegów. */
   readonly topOffset: number;
 
-  constructor(scene: Phaser.Scene, classId: string, teamColor: number) {
-    const def = HERO_FRAMES[classId];
+  /**
+   * @param playerColor kolor slotu gracza (`PLAYER_COLORS`) — obwódka i pas drużyny (D3 w planie).
+   */
+  constructor(scene: Phaser.Scene, classId: string, playerColor: number) {
+    const frameName = heroFrameFor(classId, -1)!;
+    const energy = HEROES[classId].energy;
     const tex = scene.textures.get(ATLAS_KEY);
-    const frame = tex.get(def.frame);
+    const frame = tex.get(frameName);
     const data = frame.customData as { glow?: [number, number, number][] };
 
     this.shadow = scene.add.ellipse(0, 0, 40, 12, 0x000000, 0.4).setDepth(2.9);
-    this.base = scene.add.image(0, 0, ATLAS_KEY, def.frame).setDepth(3);
+    // obwódka POD postacią i nad cieniem — inaczej przykryłaby rysunek
+    this.rim = tex.has(frameName + '#rim')
+      ? scene.add.image(0, 0, ATLAS_KEY, frameName + '#rim').setTint(playerColor).setDepth(2.95)
+      : null;
+    this.base = scene.add.image(0, 0, ATLAS_KEY, frameName).setDepth(3);
     // origin z pivota stóp, przesunięty w górę o FEET_OFFSET — pozycja Image = środek hitboxu
     this.originX = frame.pivotX;
     this.originY = frame.pivotY - FEET_OFFSET / DISPLAY_SCALE / frame.height;
-    this.team = tex.has(def.frame + '#team')
-      ? scene.add.image(0, 0, ATLAS_KEY, def.frame + '#team').setTint(teamColor).setDepth(3.01)
+    this.team = tex.has(frameName + '#team')
+      ? scene.add.image(0, 0, ATLAS_KEY, frameName + '#team').setTint(playerColor).setDepth(3.01)
       : null;
-    for (const img of [this.base, this.team]) img?.setOrigin(this.originX, this.originY);
+    for (const img of [this.rim, this.base, this.team]) img?.setOrigin(this.originX, this.originY);
 
     makeGlowCircle(scene, GLOW_KEY, GLOW_RADIUS);
     for (const [x, y, r] of data.glow ?? []) {
       const img = scene.add
         .image(0, 0, GLOW_KEY)
-        .setTint(def.glow)
+        .setTint(energy)
         .setBlendMode(Phaser.BlendModes.ADD)
         .setDepth(3.02);
       this.glows.push({ img, x, y, r });
@@ -93,7 +101,7 @@ export class HeroRig {
     const s = DISPLAY_SCALE * scale;
     const alpha = p.dead ? 0.25 : 1;
 
-    for (const img of [this.base, this.team]) {
+    for (const img of [this.rim, this.base, this.team]) {
       img
         ?.setPosition(x, y + bob)
         .setScale(s * this.facing, s)

@@ -1,0 +1,17 @@
+{
+  "// ": "Sprawdzanie typów narzędzi grafiki (plan-grafik.md, D9). Node uruchamia tools/*.ts przez samo",
+  "//  ": "wycinanie typów i niczego nie sprawdza — tu łapiemy błędy i składnię, której node nie wytnie",
+  "//   ": "(erasableSyntaxOnly). Manifest jest współdzielony z grą, więc sprawdzamy go w obu światach.",
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "erasableSyntaxOnly": true,
+    "skipLibCheck": true,
+    "types": ["node"]
+  },
+  "include": ["tools", "src/render/artManifest.ts"]
+}

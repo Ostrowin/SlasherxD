@@ -5,6 +5,7 @@ import { MetaScene } from './render/MetaScene';
 import { CoopScene } from './render/CoopScene';
 import { GameScene } from './render/GameScene';
 import { sfx } from './render/audio';
+import { parseDevStart } from './render/devStart';
 
 const game = new Phaser.Game({
   type: Phaser.AUTO,
@@ -17,6 +18,18 @@ const game = new Phaser.Game({
   },
   scene: [ClassSelectScene, MapSelectScene, MetaScene, CoopScene, GameScene],
 });
+
+// Szybki start do testów grafiki: `?dev=1&class=bear&spec=0&wave=5&seed=1` pomija menu. Tylko `npm run dev` —
+// w buildzie gałąź i moduł `devStart` znikają (sprawdza `bench/artCheck.ts`).
+if (import.meta.env.DEV) {
+  const dev = parseDevStart(window.location.search);
+  if (dev) {
+    game.events.once('ready', () => {
+      game.scene.stop('class-select');
+      game.scene.start('game', { classId: dev.classId, mapId: dev.mapId, dev });
+    });
+  }
+}
 
 /**
  * Przeglądarki nie pozwalają odtworzyć dźwięku, dopóki gracz w cokolwiek nie

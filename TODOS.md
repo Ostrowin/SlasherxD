@@ -16,7 +16,7 @@
 - [ ] Specjalizacje pozostałych klas (znane: kret → Sniper, zając → Aura Master)
 - [ ] Co przyciąga do kolejnego runu bez odblokowań — wybór trudności w lobby? (gdd.md 5.8)
 - [ ] Sci-fi bronie (bardzo sci-fi — kierunek potwierdzony, konkrety później)
-- [~] Grafiki — **2026-09-30: plan zatwierdzony** (`docs/designs/plan-grafik.md`, etapy 0-4: narzędzia → niedźwiedzie → mapa → wrogowie i bossowie → reszta ras). Próbka Grawitanta w grze. Bieżący etap: **0**
+- [~] Grafiki — **2026-09-30: plan zatwierdzony** (`docs/designs/plan-grafik.md`, etapy 0-4: narzędzia → niedźwiedzie → mapa → wrogowie i bossowie → reszta ras). Próbka Grawitanta w grze. **Etap 0 zrobiony 2026-09-30** (manifest, obwódka w kolorze gracza, atlas 0.75, `grit.py`, karta `npm run bake-art -- --sheet`, szybki start `?dev=1&class=bear&spec=0&wave=5&seed=1` z pomiarem FPS, `artCheck` w `npm test`). Następny: **Etap 1**
 - [ ] **`npm run lint` pada na `Math.random`** w `src/render/GameScene.ts:2044` (efekt błyskawicy, tylko render). Naprawa: `Rng` z `src/sim/rng.ts` z osobnym seedem renderu albo lokalny wyjątek ESLint z komentarzem. Czysty lint przed etapami grafiki (plan-eng-review 2026-09-30)
 - [~] Więcej bossów — **2026-08-22: fale 5/7/9/10 obsadzone** (Void Warden, PLASMA REAVER, HIVE COLOSSUS,
       Hive Queen). Hive Queen (10) **wzmocniona**: HP 900→1250, +dmg, szybsze ataki, NOWA 3. faza „THE HIVE
