@@ -1,0 +1,39 @@
+<svg data-glow="146 74 7; 80 66 12; 56 92 7" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" width="160" height="160" data-anchor="80 86" data-world="0.21" data-grime="0.9">
+  <!-- Ember Stalker: lawowy ogar z bazaltowych płyt, żarzące się pęknięcia i grzywa z płomiennych kolców. -->
+  <ellipse cx="82" cy="146" rx="56" ry="6" fill="#000" opacity="0.3"/>
+  <g stroke="#1a120c" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M28 92 C14 90 6 80 4 66 C12 74 20 80 30 82 Z" fill="#241e1c"/>
+  </g>
+  <g stroke="#1a120c" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M36 108 L28 144 L40 144 L46 112 Z" fill="#241e1c"/>
+    <path d="M58 110 L56 144 L68 144 L68 112 Z" fill="#3a3230"/>
+    <path d="M100 110 L98 144 L110 144 L112 110 Z" fill="#241e1c"/>
+    <path d="M120 106 L126 144 L138 144 L130 104 Z" fill="#3a3230"/>
+  </g>
+  <g stroke="#1a120c" stroke-width="3" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M24 96 C22 76 44 64 76 64 C108 64 132 72 136 92 C132 110 110 116 78 116 C48 116 26 112 24 96 Z" fill="#3a3230"/>
+  </g>
+  <path d="M40 76 L56 92 L52 104 M76 70 L80 88 L96 96 M110 74 L104 92" stroke="#ff5a2b" stroke-width="2.6" fill="none" stroke-linejoin="round"/>
+  <path d="M32 84 C44 72 70 68 96 70" stroke="#5a4a44" stroke-width="3" fill="none"/>
+  <g stroke="#1a120c" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M56 72 L66 52 L70 72 Z" fill="#ff5a2b"/>
+  </g>
+  <g stroke="#1a120c" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M72 70 L82 44 L86 70 Z" fill="#ff5a2b"/>
+  </g>
+  <g stroke="#1a120c" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M88 72 L98 48 L102 72 Z" fill="#ff5a2b"/>
+  </g>
+  <g stroke="#1a120c" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M104 76 L114 56 L118 76 Z" fill="#ff5a2b"/>
+  </g>
+  <g stroke="#1a120c" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M42 76 L52 60 L56 76 Z" fill="#ff5a2b"/>
+  </g>
+  <g stroke="#1a120c" stroke-width="3" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M124 70 C132 58 150 58 156 70 C160 80 154 92 144 94 L126 92 C120 86 120 78 124 70 Z" fill="#3a3230"/>
+    <path d="M140 92 L146 102 L136 96 Z M150 90 L156 98 L148 94 Z" fill="#cfd6c4"/>
+  </g>
+  <circle cx="146" cy="74" r="3" fill="#ffc07a" stroke="#1a120c" stroke-width="1"/>
+  <path d="M130 84 L152 84" stroke="#ff5a2b" stroke-width="2"/>
+</svg>

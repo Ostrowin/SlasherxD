@@ -1,4 +1,3 @@
-import type Phaser from 'phaser';
 import { PROGRESSION, talentSlotsFor } from '../sim/talentsConfig';
 import type { World } from '../sim/world';
 import { DEV_MARKER } from './devMarker';
@@ -93,51 +92,4 @@ export function keepAlive(world: World): void {
   const p = world.players[0];
   p.hp = world.maxHpOf(p);
   p.dead = false;
-}
-
-/**
- * Pomiar FPS z planu (Success Criteria): 30 s od startu, próbka co 0,5 s → mediana, minimum i średnia liczba
- * żywych wrogów. Ten sam seed i fala = porównywalne liczby przed i po każdym etapie grafiki (bazowo: wielokąty).
- *
- * Wynik nie może zginąć razem z kartą przeglądarki, więc trafia w trzy miejsca:
- *   - na ekran (róg, zostaje do końca runu),
- *   - do konsoli,
- *   - do pliku `.dev/fps.jsonl` przez serwer deweloperski (plugin w vite.config.ts) — działa też z telefonu w LAN.
- */
-export function startFpsProbe(scene: Phaser.Scene, dev: DevStart, liveMobs: () => number): void {
-  const fps: number[] = [];
-  const mobs: number[] = [];
-  const timer = scene.time.addEvent({
-    delay: 500,
-    repeat: 59,
-    callback: () => {
-      fps.push(scene.game.loop.actualFps);
-      mobs.push(liveMobs());
-      if (fps.length < 60) return;
-      const sorted = [...fps].sort((a, b) => a - b);
-      const result = {
-        at: new Date().toISOString(),
-        median: Math.round(sorted[Math.floor(sorted.length / 2)] * 10) / 10,
-        min: Math.round(sorted[0] * 10) / 10,
-        mobsAvg: Math.round(mobs.reduce((a, b) => a + b, 0) / mobs.length),
-        scenario: { classId: dev.classId, spec: dev.spec, wave: dev.wave, seed: dev.seed, map: dev.mapId ?? 'station' },
-        device: {
-          ua: navigator.userAgent,
-          dpr: window.devicePixelRatio,
-          viewport: `${window.innerWidth}x${window.innerHeight}`,
-        },
-      };
-      const line = `FPS 30 s: mediana ${result.median}, min ${result.min}, wrogów ~${result.mobsAvg}`;
-      console.info(`${DEV_MARKER} ${line}`, result);
-      scene.add
-        .text(12, 40, line, { fontFamily: 'monospace', fontSize: '14px', color: '#39ff14', backgroundColor: '#000000aa' })
-        .setScrollFactor(0)
-        .setDepth(100)
-        .setPadding(6, 4, 6, 4);
-      fetch('/__dev/fps', { method: 'POST', body: JSON.stringify(result) }).catch(() => {
-        // brak serwera deweloperskiego (np. podgląd buildu) — wynik i tak jest na ekranie i w konsoli
-      });
-    },
-  });
-  scene.events.once('shutdown', () => timer.remove());
 }

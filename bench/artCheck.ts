@@ -2,6 +2,8 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'fs';
 import { join } from 'path';
 import {
   ATLASES,
+  BOSS_ART,
+  ENEMY_ART,
   HEROES,
   MAP_ART,
   PLAYER_COLOR_MIN_LUMINANCE,
@@ -10,6 +12,9 @@ import {
   SUMMONS,
 } from '../src/render/artManifest';
 import { DEV_MARKER } from '../src/render/devMarker';
+import { ENEMIES } from '../src/sim/enemies';
+import { BOSSES } from '../src/sim/bosses';
+import { STATUSES } from '../src/sim/statusConfig';
 
 /**
  * Spójność grafiki (plan-grafik.md, Etap 0, D8): manifest ↔ SVG ↔ wypalone atlasy, budżet tekstur,
@@ -21,7 +26,7 @@ import { DEV_MARKER } from '../src/render/devMarker';
 
 interface AtlasJson {
   frames: Record<string, { frame: { w: number; h: number }; anchor: { x: number; y: number }; glow: number[][] }>;
-  meta: { size: { w: number; h: number }; bakeScale: number };
+  meta: { size: { w: number; h: number }; bakeScale: number; statuses?: string[] };
 }
 
 const wyniki: [string, boolean, string][] = [];
@@ -99,6 +104,23 @@ for (const [mapId, art] of Object.entries(MAP_ART)) {
     check(`mapa ${mapId}: ${frame} w atlasie world`, SPRITES[frame]?.atlas === 'world' && !!atlases.world?.frames[frame]);
     check(`mapa ${mapId}: ${frame} bez obwódki (D4)`, SPRITES[frame]?.rim === false);
   }
+}
+
+// --- najeźdźcy (Etap 3): każdy wróg i boss z gry ma grafikę we właściwym atlasie, bez obwódki
+for (const e of ENEMIES) {
+  const art = ENEMY_ART[e.id];
+  check(`wróg ${e.id}: ma grafikę`, !!art);
+  if (art) check(`wróg ${e.id}: ${art.frame} w atlasie invaders`, SPRITES[art.frame]?.atlas === 'invaders' && !!atlases.invaders?.frames[art.frame]);
+}
+for (const b of BOSSES) {
+  const art = BOSS_ART[b.id];
+  check(`boss ${b.id}: ma grafikę`, !!art);
+  if (art) check(`boss ${b.id}: ${art.frame} w atlasie bosses`, SPRITES[art.frame]?.atlas === 'bosses' && !!atlases.bosses?.frames[art.frame]);
+}
+// parser kolorów statusów w bakeArt widzi dokładnie statusy gry (inaczej statusFill liczono na złych kolorach)
+const statusIds = STATUSES.map((st) => st.id).join(',');
+for (const key of ['invaders', 'bosses']) {
+  check(`atlas ${key}: statusy jak w grze (D6)`, atlases[key]?.meta.statuses?.join(',') === statusIds, `${atlases[key]?.meta.statuses?.join(',')} vs ${statusIds}`);
 }
 
 // --- paleta slotów graczy (D3): 8 kolorów, każdy jasny na tle gry

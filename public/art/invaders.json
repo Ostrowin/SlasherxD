@@ -1,0 +1,174 @@
+{
+ "frames": {
+  "inv_brute": {
+   "frame": {
+    "x": 4,
+    "y": 4,
+    "w": 89,
+    "h": 106
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 89,
+    "h": 106
+   },
+   "sourceSize": {
+    "w": 89,
+    "h": 106
+   },
+   "anchor": {
+    "x": 0.4449438202247191,
+    "y": 0.5830188679245283
+   },
+   "glow": [],
+   "statusFill": [
+    "stun",
+    "fear"
+   ]
+  },
+  "inv_mage": {
+   "frame": {
+    "x": 101,
+    "y": 4,
+    "w": 44,
+    "h": 84
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 44,
+    "h": 84
+   },
+   "sourceSize": {
+    "w": 44,
+    "h": 84
+   },
+   "anchor": {
+    "x": 0.45909090909090916,
+    "y": 0.6
+   },
+   "glow": [],
+   "statusFill": [
+    "chill",
+    "soaked",
+    "gravity-drag",
+    "stun",
+    "fear"
+   ]
+  },
+  "inv_demon": {
+   "frame": {
+    "x": 153,
+    "y": 4,
+    "w": 69,
+    "h": 77
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 69,
+    "h": 77
+   },
+   "sourceSize": {
+    "w": 69,
+    "h": 77
+   },
+   "anchor": {
+    "x": 0.510144927536232,
+    "y": 0.6025974025974026
+   },
+   "glow": [],
+   "statusFill": [
+    "stun",
+    "fear"
+   ]
+  },
+  "inv_alien": {
+   "frame": {
+    "x": 230,
+    "y": 4,
+    "w": 55,
+    "h": 73
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 55,
+    "h": 73
+   },
+   "sourceSize": {
+    "w": 55,
+    "h": 73
+   },
+   "anchor": {
+    "x": 0.45818181818181825,
+    "y": 0.5945205479452055
+   },
+   "glow": [],
+   "statusFill": [
+    "plague",
+    "stun",
+    "fear"
+   ]
+  },
+  "inv_robot": {
+   "frame": {
+    "x": 293,
+    "y": 4,
+    "w": 55,
+    "h": 69
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 55,
+    "h": 69
+   },
+   "sourceSize": {
+    "w": 55,
+    "h": 69
+   },
+   "anchor": {
+    "x": 0.3672727272727273,
+    "y": 0.5565217391304348
+   },
+   "glow": [],
+   "statusFill": [
+    "stun",
+    "fear"
+   ]
+  }
+ },
+ "meta": {
+  "app": "tools/bakeArt.ts",
+  "image": "invaders.png",
+  "size": {
+   "w": 2048,
+   "h": 128
+  },
+  "scale": 1,
+  "bakeScale": 0.9,
+  "statuses": [
+   "plague",
+   "burn",
+   "chill",
+   "soaked",
+   "gravity-drag",
+   "stun",
+   "fear",
+   "venom",
+   "weaken"
+  ]
+ }
+}

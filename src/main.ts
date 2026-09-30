@@ -22,6 +22,8 @@ const game = new Phaser.Game({
 // Szybki start do testów grafiki: `?dev=1&class=bear&spec=0&wave=5&seed=1` pomija menu. Tylko `npm run dev` —
 // w buildzie gałąź i moduł `devStart` znikają (sprawdza `bench/artCheck.ts`).
 if (import.meta.env.DEV) {
+  // Uchwyt do gry dla narzędzi (np. przewijanie klatek przy ukrytej karcie) — tylko `npm run dev`.
+  (window as unknown as { __game: Phaser.Game }).__game = game;
   const dev = parseDevStart(window.location.search);
   if (dev) {
     game.events.once('ready', () => {

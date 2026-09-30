@@ -1,0 +1,347 @@
+{
+ "frames": {
+  "boss_void_warden": {
+   "frame": {
+    "x": 4,
+    "y": 4,
+    "w": 150,
+    "h": 206
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 150,
+    "h": 206
+   },
+   "sourceSize": {
+    "w": 150,
+    "h": 206
+   },
+   "anchor": {
+    "x": 0.44666666666666666,
+    "y": 0.5635922330097087
+   },
+   "glow": [
+    [
+     2.7,
+     -8.1,
+     13.5
+    ],
+    [
+     9.5,
+     -70.2,
+     10.8
+    ],
+    [
+     63.5,
+     -18.9,
+     8.1
+    ]
+   ],
+   "statusFill": [
+    "plague",
+    "chill",
+    "gravity-drag",
+    "stun",
+    "fear"
+   ]
+  },
+  "boss_hive_queen": {
+   "frame": {
+    "x": 162,
+    "y": 4,
+    "w": 174,
+    "h": 204
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 174,
+    "h": 204
+   },
+   "sourceSize": {
+    "w": 174,
+    "h": 204
+   },
+   "anchor": {
+    "x": 0.5229885057471264,
+    "y": 0.5544117647058824
+   },
+   "glow": [
+    [
+     21.6,
+     -62.1,
+     12.2
+    ],
+    [
+     21.6,
+     -94.5,
+     6.8
+    ],
+    [
+     -45.9,
+     45.9,
+     10.8
+    ]
+   ],
+   "statusFill": [
+    "fear"
+   ]
+  },
+  "boss_core_tyrant": {
+   "frame": {
+    "x": 344,
+    "y": 4,
+    "w": 194,
+    "h": 199
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 194,
+    "h": 199
+   },
+   "sourceSize": {
+    "w": 194,
+    "h": 199
+   },
+   "anchor": {
+    "x": 0.5,
+    "y": 0.5432160804020101
+   },
+   "glow": [
+    [
+     0,
+     -13.5,
+     21.6
+    ],
+    [
+     0,
+     -55.4,
+     9.5
+    ],
+    [
+     0,
+     -105.3,
+     6.8
+    ]
+   ],
+   "statusFill": [
+    "stun",
+    "fear"
+   ]
+  },
+  "boss_obsidian_colossus": {
+   "frame": {
+    "x": 546,
+    "y": 4,
+    "w": 191,
+    "h": 190
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 191,
+    "h": 190
+   },
+   "sourceSize": {
+    "w": 191,
+    "h": 190
+   },
+   "anchor": {
+    "x": 0.49214659685863876,
+    "y": 0.5215789473684211
+   },
+   "glow": [
+    [
+     0,
+     -5.4,
+     16.2
+    ],
+    [
+     8.1,
+     -81,
+     6.8
+    ]
+   ],
+   "statusFill": [
+    "plague",
+    "burn",
+    "chill",
+    "soaked",
+    "gravity-drag",
+    "stun",
+    "fear"
+   ]
+  },
+  "boss_hive_colossus": {
+   "frame": {
+    "x": 745,
+    "y": 4,
+    "w": 195,
+    "h": 187
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 195,
+    "h": 187
+   },
+   "sourceSize": {
+    "w": 195,
+    "h": 187
+   },
+   "anchor": {
+    "x": 0.4461538461538462,
+    "y": 0.513903743315508
+   },
+   "glow": [
+    [
+     5.4,
+     -18.9,
+     13.5
+    ],
+    [
+     -45.9,
+     -21.6,
+     10.8
+    ],
+    [
+     56.7,
+     -13.5,
+     10.8
+    ]
+   ],
+   "statusFill": [
+    "stun",
+    "fear"
+   ]
+  },
+  "boss_plasma_reaver": {
+   "frame": {
+    "x": 948,
+    "y": 4,
+    "w": 150,
+    "h": 184
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 150,
+    "h": 184
+   },
+   "sourceSize": {
+    "w": 150,
+    "h": 184
+   },
+   "anchor": {
+    "x": 0.4666666666666667,
+    "y": 0.5114130434782609
+   },
+   "glow": [
+    [
+     25.7,
+     -64.8,
+     8.1
+    ],
+    [
+     56.7,
+     -21.6,
+     12.2
+    ],
+    [
+     43.2,
+     13.5,
+     12.2
+    ]
+   ],
+   "statusFill": [
+    "chill",
+    "stun",
+    "fear"
+   ]
+  },
+  "boss_ember_stalker": {
+   "frame": {
+    "x": 1106,
+    "y": 4,
+    "w": 212,
+    "h": 148
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 212,
+    "h": 148
+   },
+   "sourceSize": {
+    "w": 212,
+    "h": 148
+   },
+   "anchor": {
+    "x": 0.49528301886792453,
+    "y": 0.3925675675675676
+   },
+   "glow": [
+    [
+     89.1,
+     -16.2,
+     9.5
+    ],
+    [
+     0,
+     -27,
+     16.2
+    ],
+    [
+     -32.4,
+     8.1,
+     9.5
+    ]
+   ],
+   "statusFill": [
+    "plague",
+    "burn",
+    "gravity-drag",
+    "stun",
+    "fear",
+    "weaken"
+   ]
+  }
+ },
+ "meta": {
+  "app": "tools/bakeArt.ts",
+  "image": "bosses.png",
+  "size": {
+   "w": 2048,
+   "h": 256
+  },
+  "scale": 1,
+  "bakeScale": 1.35,
+  "statuses": [
+   "plague",
+   "burn",
+   "chill",
+   "soaked",
+   "gravity-drag",
+   "stun",
+   "fear",
+   "venom",
+   "weaken"
+  ]
+ }
+}

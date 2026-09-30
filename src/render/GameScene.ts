@@ -20,7 +20,9 @@ import { FogOfWar } from './fog';
 import { ATLAS_KEY as ATLAS_KEY_HEROES, HeroRig, SUMMON_DISPLAY_SCALE, hasHeroArt, preloadHeroArt, summonFrameFor } from './heroArt';
 import { PLAYER_COLORS } from './artManifest';
 import { buildArenaFloor, buildObstacles, hasWorldArt, preloadWorldArt } from './worldArt';
-import { applyDevStart, keepAlive, startFpsProbe, type DevStart } from './devStart';
+import { applyMobSignal, bossLooks, enemyLooks, preloadInvaderArt, type InvaderLook } from './invaderArt';
+import { applyDevStart, keepAlive, type DevStart } from './devStart';
+import { startFpsLog } from './devFps';
 import { Minimap } from './Minimap';
 import { Hud } from './Hud';
 import { DamageNumbers } from './DamageNumbers';
@@ -84,6 +86,11 @@ export class GameScene extends Phaser.Scene {
   private playerSprites: Phaser.GameObjects.Image[] = [];
   /** Postać z atlasu (warstwy + neon) albo null = stary świecący pięciokąt. */
   private playerRigs: (HeroRig | null)[] = [];
+  /** Wygląd typów hordy i bossów z atlasu (null = stary wielokąt). Indeksy = ENEMIES / BOSSES. */
+  private enemyLooks: (InvaderLook | null)[] = [];
+  private bossLooks: (InvaderLook | null)[] = [];
+  /** Poświaty bossów z grafiką, per slot poola mobków — bossów jest kilku, więc bez poolingu. */
+  private bossGlows = new Map<number, Phaser.GameObjects.Image[]>();
   /** Ostatnio narysowana specjalizacja każdego gracza — zmiana = przemiana postaci (plan, Etap 1). */
   private lastSeenSpec: number[] = [];
   /**
@@ -251,6 +258,7 @@ export class GameScene extends Phaser.Scene {
   preload(): void {
     preloadHeroArt(this);
     preloadWorldArt(this);
+    preloadInvaderArt(this);
   }
 
   create(): void {
@@ -305,7 +313,19 @@ export class GameScene extends Phaser.Scene {
     if (import.meta.env.DEV && this.dev && !this.coop) {
       // Fala i poziom przed pierwszym tickiem; specjalizacja idzie zwykłym inputem `talentPick`.
       this.pendingTalentPick = applyDevStart(this.world, this.dev);
-      startFpsProbe(this, this.dev, () => this.world.mobs.filter((m) => m.alive).length);
+    }
+    if (import.meta.env.DEV) {
+      // Dziennik FPS każdej gry w `npm run dev` → .dev/fps.jsonl (co 30 s aktywnej gry, patrz devFps.ts).
+      startFpsLog(this, () => ({
+        active: !this.paused && !this.world.isRunOver,
+        liveMobs: this.world.mobs.filter((m) => m.alive).length,
+        wave: this.world.wave,
+        map: this.arenaMapId,
+        classId: this.me.cls.id,
+        spec: this.me.specIndex,
+        players: this.world.players.length,
+        enemyArt: this.enemyLooks.filter((l) => l).length + this.bossLooks.filter((l) => l).length,
+      }));
     }
     this.pendingSkillCast = -1;
     this.pendingDash = false;
@@ -383,6 +403,13 @@ export class GameScene extends Phaser.Scene {
         this.add.image(p.x, p.y, 'player').setTint(p.cls.color).setDepth(3),
     );
     this.lastSeenSpec = this.world.players.map((p) => p.specIndex);
+    const statusIds = STATUSES.map((st) => st.id);
+    // `?noart` (tylko DEV): wrogowie jako dawne wielokąty — pomiar FPS „przed” do porównania z grafiką.
+    const noArt = import.meta.env.DEV && new URLSearchParams(window.location.search).has('noart');
+    this.enemyLooks = noArt ? [] : enemyLooks(this, ENEMIES, statusIds);
+    this.bossLooks = noArt ? [] : bossLooks(this, BOSSES, statusIds);
+    this.bossGlows = new Map();
+    makeGlowCircle(this, 'boss-glow', 8);
     this.skipFirstMorph = import.meta.env.DEV && !!this.dev && this.dev.spec >= 0;
     this.teamBars = this.add.graphics().setDepth(7);
     // Głębokość 2: POD jednostkami i wrogami, żeby okrąg pola był tłem,
@@ -1568,6 +1595,45 @@ export class GameScene extends Phaser.Scene {
     return reward;
   }
 
+  /** Wróg z grafiką patrzy w stronę ruchu (rysunki patrzą w prawo). Stoi = zostaje, jak patrzył. */
+  private faceMob(s: Phaser.GameObjects.Image, m: { x: number; prevX: number }): void {
+    const dx = m.x - m.prevX;
+    if (dx < -0.05) s.setFlipX(true);
+    else if (dx > 0.05) s.setFlipX(false);
+  }
+
+  /** Poświaty bossa (oczy, rdzeń) w punktach klatki, lustrzane razem ze sprite'em, pulsują. */
+  private placeBossGlows(
+    i: number,
+    s: Phaser.GameObjects.Image,
+    look: InvaderLook,
+    color: number,
+    tick: number,
+  ): void {
+    let glows = this.bossGlows.get(i);
+    if (!glows) {
+      glows = look.glow.map(() =>
+        this.add.image(0, 0, 'boss-glow').setTint(color).setBlendMode(Phaser.BlendModes.ADD).setDepth(2.05),
+      );
+      this.bossGlows.set(i, glows);
+    }
+    const dir = s.flipX ? -1 : 1;
+    const pulse = 0.55 + Math.sin(tick * 0.12) * 0.15;
+    look.glow.forEach(([gx, gy, gr], k) => {
+      glows![k]
+        .setPosition(s.x + gx * look.scale * dir, s.y + gy * look.scale)
+        .setScale((gr * look.scale * 1.6) / 8)
+        .setAlpha(pulse);
+    });
+  }
+
+  private dropBossGlows(i: number): void {
+    const glows = this.bossGlows.get(i);
+    if (!glows) return;
+    for (const g of glows) g.destroy();
+    this.bossGlows.delete(i);
+  }
+
   private renderWorld(alpha: number): void {
     const w = this.world;
     const me = this.me;
@@ -1605,6 +1671,7 @@ export class GameScene extends Phaser.Scene {
       const s = this.mobSprites[i];
 
       if (!m.alive) {
+        this.dropBossGlows(i);
         if (s.visible) {
           if (this.mobWasAlive[i] && burstBudget > 0) {
             burstBudget--;
@@ -1620,11 +1687,17 @@ export class GameScene extends Phaser.Scene {
         continue;
       }
 
+      const look = m.bossIndex >= 0 ? this.bossLooks[m.bossIndex] : this.enemyLooks[m.defIndex];
       if (!s.visible) {
-        // Sylwetka i kolor zależą od typu — ustawiamy raz przy „wskrzeszeniu" z poola.
-        s.setTexture(
-          m.bossIndex >= 0 ? bossTextureKey(BOSSES[m.bossIndex]) : ENEMY_SHAPES[m.defIndex].key,
-        ).setVisible(true);
+        // Sylwetka zależy od typu — ustawiamy raz przy „wskrzeszeniu" z poola. Rysunek z atlasu ustawia origin
+        // z pivota klatki; wielokąt wraca do środka (slot poola bywa raz jednym, raz drugim).
+        if (look) s.setTexture(look.atlasKey, look.frame).setAlpha(1).setVisible(true);
+        else {
+          s.setTexture(m.bossIndex >= 0 ? bossTextureKey(BOSSES[m.bossIndex]) : ENEMY_SHAPES[m.defIndex].key)
+            .setOrigin(0.5)
+            .setAlpha(1)
+            .setVisible(true);
+        }
       }
       this.mobWasAlive[i] = true;
 
@@ -1636,14 +1709,30 @@ export class GameScene extends Phaser.Scene {
       // Boss: własny kolor i skala, reszta jak przy zwykłym wrogu.
       if (m.bossIndex >= 0) {
         const bdef = BOSSES[m.bossIndex];
+        const bx = Phaser.Math.Linear(m.prevX, m.x, alpha);
+        const by = Phaser.Math.Linear(m.prevY, m.y, alpha);
+        const charge = m.state === 'charging' ? 1.12 : 1;
+        if (look) {
+          const bstatus = m.statuses.find((st) => st.defIndex >= 0);
+          applyMobSignal(s, look, {
+            hit: w.tick - m.lastHitTick <= 2,
+            windup: m.state === 'windup',
+            recover: false,
+            statusBlink: bstatus && Math.floor(w.tick / 4) % 2 === 0 ? bstatus.defIndex : -1,
+            statusColor: bstatus ? STATUSES[bstatus.defIndex].color : 0,
+            energy: bdef.color,
+            tick: w.tick,
+          });
+          this.faceMob(s, m);
+          s.setScale(look.scale * charge).setPosition(bx, by);
+          this.placeBossGlows(i, s, look, bdef.color, w.tick);
+          continue;
+        }
         if (w.tick - m.lastHitTick <= 2) s.setTintFill(0xffffff);
         else if (m.state === 'windup') s.setTintFill(0xffdddd);
         else s.setTint(bdef.color);
-        s.setScale(m.state === 'charging' ? 1.12 : 1);
-        s.setPosition(
-          Phaser.Math.Linear(m.prevX, m.x, alpha),
-          Phaser.Math.Linear(m.prevY, m.y, alpha),
-        );
+        s.setScale(charge);
+        s.setPosition(bx, by);
         continue;
       }
 
@@ -1653,23 +1742,34 @@ export class GameScene extends Phaser.Scene {
       // że na wrogu coś wisi, inaczej cały system jest niewidzialny.
       const status = m.statuses.find((st) => st.defIndex >= 0);
 
-      // Hit-flash: świeżo trafiony mob świeci na biało przez ~2 ticki.
-      if (w.tick - m.lastHitTick <= 2) s.setTintFill(0xffffff);
-      else if (m.state === 'windup') s.setTintFill(0xffffff); // ładuje cios — świeci
-      else if (m.state === 'recover') s.setTint(0x666677); // bezbronny — przygasa
-      else if (status && Math.floor(w.tick / 4) % 2 === 0) {
-        s.setTint(STATUSES[status.defIndex].color);
-      } else s.setTint(def.color);
+      if (look) {
+        // Wróg z grafiką: kolor typu jest w rysunku, sygnały przez nowe nośniki (plan, Etap 3).
+        applyMobSignal(s, look, {
+          hit: w.tick - m.lastHitTick <= 2,
+          windup: m.state === 'windup',
+          recover: m.state === 'recover',
+          statusBlink: status && Math.floor(w.tick / 4) % 2 === 0 ? status.defIndex : -1,
+          statusColor: status ? STATUSES[status.defIndex].color : 0,
+          energy: def.color,
+          tick: w.tick,
+        });
+        this.faceMob(s, m);
+      } else {
+        // Hit-flash: świeżo trafiony mob świeci na biało przez ~2 ticki.
+        if (w.tick - m.lastHitTick <= 2) s.setTintFill(0xffffff);
+        else if (m.state === 'windup') s.setTintFill(0xffffff); // ładuje cios — świeci
+        else if (m.state === 'recover') s.setTint(0x666677); // bezbronny — przygasa
+        else if (status && Math.floor(w.tick / 4) % 2 === 0) {
+          s.setTint(STATUSES[status.defIndex].color);
+        } else s.setTint(def.color);
+      }
 
       // Zamach „puchnie", faza bezbronności kuli się — czytelne bez ikonek.
-      if (m.state === 'windup' && def.slam) {
-        const t = 1 - m.stateTicks / def.slam.windupTicks;
-        s.setScale(1 + t * 0.25);
-      } else if (m.state === 'recover') {
-        s.setScale(0.85);
-      } else if (s.scale !== 1) {
-        s.setScale(1);
-      }
+      let pose = 1;
+      if (m.state === 'windup' && def.slam) pose = 1 + (1 - m.stateTicks / def.slam.windupTicks) * 0.25;
+      else if (m.state === 'recover') pose = 0.85;
+      const base = look ? look.scale : 1;
+      if (s.scaleY !== base * pose) s.setScale(base * pose);
 
       s.setPosition(Phaser.Math.Linear(m.prevX, m.x, alpha), Phaser.Math.Linear(m.prevY, m.y, alpha));
     }

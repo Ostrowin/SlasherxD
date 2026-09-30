@@ -1,0 +1,42 @@
+<svg data-glow="80 82 12; 86 26 5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" width="160" height="160" data-anchor="80 86" data-world="0.21" data-grime="0.9">
+  <!-- Obsidian Colossus: golem z odłamków obsydianu, ogromne ramiona, fioletowy rdzeń. -->
+  <ellipse cx="80" cy="146" rx="58" ry="7" fill="#000" opacity="0.3"/>
+  <g stroke="#1a120c" stroke-width="3" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M52 112 L44 146 L72 146 L70 114 Z" fill="#3e3450"/>
+    <path d="M90 114 L88 146 L116 146 L108 112 Z" fill="#2a2236"/>
+  </g>
+  <g stroke="#1a120c" stroke-width="3" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M44 60 L20 72 L12 108 L30 116 L40 90 L50 80 Z" fill="#3e3450"/>
+    <path d="M118 54 L142 68 L150 104 L132 114 L122 88 L112 78 Z" fill="#2a2236"/>
+  </g>
+  <path d="M16 90 L28 96 M146 88 L134 94" stroke="#8a7aa8" stroke-width="2"/>
+  <g stroke="#1a120c" stroke-width="3.5" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M44 56 L64 34 L96 30 L118 50 L116 104 L96 118 L64 118 L44 104 Z" fill="#2a2236"/>
+  </g>
+  <path d="M44 56 L64 34 L82 60 L60 80 Z" fill="#3e3450" stroke="#1a120c" stroke-width="1.8"/>
+  <path d="M82 60 L96 30 L118 50 L104 76 Z" fill="#3e3450" stroke="#1a120c" stroke-width="1.8"/>
+  <path d="M60 80 L82 60 L104 76 L96 104 L66 104 Z" fill="#2a2236" stroke="#1a120c" stroke-width="1.8"/>
+  <path d="M50 58 L64 40 M88 34 L100 36" stroke="#8a7aa8" stroke-width="2.2"/>
+  <g stroke="#1a120c" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M51 48 L52 26 L61 48 Z" fill="#3e3450"/>
+  </g>
+  <path d="M55 44 L52 30" stroke="#8a7aa8" stroke-width="1.2"/>
+  <g stroke="#1a120c" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M103 46 L113 22 L113 46 Z" fill="#3e3450"/>
+  </g>
+  <path d="M107 42 L113 26" stroke="#8a7aa8" stroke-width="1.2"/>
+  <g stroke="#1a120c" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M25 76 L24 58 L35 76 Z" fill="#3e3450"/>
+  </g>
+  <path d="M29 72 L24 62" stroke="#8a7aa8" stroke-width="1.2"/>
+  <g stroke="#1a120c" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M135 74 L146 56 L145 74 Z" fill="#3e3450"/>
+  </g>
+  <path d="M139 70 L146 60" stroke="#8a7aa8" stroke-width="1.2"/>
+  <path d="M80 70 L90 82 L80 94 L70 82 Z" fill="#b98aff" stroke="#1a120c" stroke-width="2"/>
+  <path d="M78 76 L82 72" stroke="#eadcff" stroke-width="2"/>
+  <g stroke="#1a120c" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M68 34 L74 16 L90 14 L96 30 L82 38 Z" fill="#3e3450"/>
+  </g>
+  <circle cx="86" cy="26" r="2.4" fill="#b98aff" stroke="#1a120c" stroke-width="1"/>
+</svg>

@@ -1,0 +1,31 @@
+<svg data-glow="96 40 9; 96 16 5; 46 120 8" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" width="160" height="160" data-anchor="80 86" data-world="0.21" data-grime="0.9">
+  <!-- Hive Queen: królowa z koroną z kości, wielki odwłok z jajami, półprzezroczyste skrzydła, różowe oczy. -->
+  <ellipse cx="76" cy="146" rx="58" ry="7" fill="#000" opacity="0.3"/>
+  <path d="M70 60 C40 30 20 34 14 50 C30 56 50 64 66 72 Z" fill="#b8c8d8" opacity="0.35" stroke="#1a120c" stroke-width="2"/>
+  <path d="M74 56 C60 18 40 10 30 20 C44 32 56 46 70 64 Z" fill="#b8c8d8" opacity="0.3" stroke="#1a120c" stroke-width="2"/>
+  <g stroke="#1a120c" stroke-width="3" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M72 96 C44 92 18 104 16 122 C16 140 44 146 70 136 C84 130 88 112 82 100 Z" fill="#5e4a6e"/>
+  </g>
+  <path d="M30 104 C28 116 30 128 36 138 M46 98 C44 112 46 126 52 140 M62 96 C60 110 62 124 66 136" stroke="#3c2e4a" stroke-width="3" fill="none"/>
+  <ellipse cx="38" cy="122" rx="5" ry="4" fill="#ff3ea5" stroke="#1a120c" stroke-width="1.5"/>
+  <ellipse cx="54" cy="118" rx="5" ry="4" fill="#ff3ea5" stroke="#1a120c" stroke-width="1.5"/>
+  <g stroke="#1a120c" stroke-width="0" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M84 116 L78 146 M100 116 L106 146" fill="none" stroke-width="6"/>
+  </g>
+  <path d="M84 116 L78 146 M100 116 L106 146" stroke="#3c2e4a" stroke-width="3.5" stroke-linecap="round"/>
+  <g stroke="#1a120c" stroke-width="3" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M76 58 C84 48 104 48 110 60 L112 106 C104 118 82 118 76 106 Z" fill="#7e6690"/>
+  </g>
+  <path d="M80 70 C88 66 100 66 108 70 M80 84 C88 80 100 80 108 84 M80 98 C88 94 100 94 108 98" stroke="#5e4a6e" stroke-width="2.5" fill="none"/>
+  <g stroke="#1a120c" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M110 62 C126 66 132 80 128 92 L122 90 C122 80 118 74 108 72 Z" fill="#5e4a6e"/>
+    <path d="M124 90 L140 100 L126 98 Z" fill="#cfd6c4"/>
+  </g>
+  <g stroke="#1a120c" stroke-width="3" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M80 50 C78 34 86 26 96 26 C106 26 112 34 110 50 C104 56 86 56 80 50 Z" fill="#5e4a6e"/>
+    <path d="M82 30 L78 8 L90 24 L96 4 L102 24 L114 8 L110 30 Z" fill="#cfd6c4"/>
+  </g>
+  <circle cx="100" cy="40" r="3" fill="#ff3ea5" stroke="#1a120c" stroke-width="1"/>
+  <circle cx="91" cy="40" r="2.4" fill="#ff3ea5" stroke="#1a120c" stroke-width="1"/>
+  <path d="M96 20 L96 12" stroke="#ff3ea5" stroke-width="3" stroke-linecap="round"/>
+</svg>

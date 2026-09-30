@@ -852,7 +852,7 @@ Synthesized from this review's findings. Each task derives from a specific findi
   - Surfaced by: Etap 1 (R1-7 z przeglądu specyfikacji), korekta „przywołańce”
   - Files: `src/render/heroArt.ts`, `src/render/GameScene.ts`
   - Verify: szybki start ze `spec=-1`, awans → przemiana w podglądzie
-- [ ] **T7 (P2, Etap 3, human: ~2h / CC: ~15min)** — tools — siatka status × najeźdźca na karcie kontrolnej + zapas `setTintFill`
+- [x] **T7 (P2, Etap 3, human: ~2h / CC: ~15min)** — tools — siatka status × najeźdźca na karcie kontrolnej + zapas `setTintFill`
   - Surfaced by: R5 (D6)
   - Files: `tools/bakeArt.ts`, `src/render/GameScene.ts`
   - Verify: karta Etapu 3

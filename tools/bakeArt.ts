@@ -28,11 +28,13 @@ import { basename, join } from 'node:path';
 import {
   ATLASES,
   MAP_ART,
+  INVADER_SIZE,
   OBSTACLE_FOOT,
   PLAYER_COLORS,
   RIM_SCREEN_PX,
   SCREEN_PX_PER_UNIT,
   SPRITES,
+  STATUS_READABLE_DELTA,
   SUMMON_SCALE,
   SUMMONS,
   type AtlasDef,
@@ -64,6 +66,48 @@ interface Baked {
   rim: Layer | null;
   anchor: [number, number];
   glow: [number, number, number][];
+  /** Statusy, których miganie tintem ginie na tym rysunku → gra miga jednolitym kolorem (D6). */
+  statusFill?: string[];
+}
+
+// ---------------------------------------------------------------- statusy wrogów (czytelność, D6)
+
+interface StatusColor {
+  id: string;
+  color: number;
+}
+
+/**
+ * Kolory statusów wrogów z `src/sim/statusConfig.ts` (tablica `STATUSES`). Parser zamiast importu, bo pliki
+ * symulacji importują moduły bez rozszerzenia, a node ich nie rozwiąże. `bench/artCheck.ts` pilnuje, że parser
+ * widzi dokładnie te statusy, które zna gra.
+ */
+export function readStatusColors(): StatusColor[] {
+  const src = readFileSync('src/sim/statusConfig.ts', 'utf-8');
+  const start = src.indexOf('export const STATUSES');
+  const body = src.slice(start, src.indexOf('\n];', start));
+  const out: StatusColor[] = [];
+  const re = /id: '([^']+)',[\s\S]*?color: 0x([0-9a-fA-F]{6})/g;
+  for (let m = re.exec(body); m; m = re.exec(body)) out.push({ id: m[1], color: parseInt(m[2], 16) });
+  return out;
+}
+
+/** Średnia zmiana koloru nieprzezroczystych pikseli, gdy rysunek miga tintem (mnożenie) — 0..1. */
+function tintDelta(base: Layer, color: number): number {
+  const t = [((color >> 16) & 255) / 255, ((color >> 8) & 255) / 255, (color & 255) / 255];
+  let sum = 0;
+  let n = 0;
+  for (let i = 0; i < base.px.length; i += 4) {
+    if (base.px[i + 3] < 128) continue;
+    let d = 0;
+    for (let c = 0; c < 3; c++) {
+      const v = base.px[i + c] / 255;
+      d += (v - v * t[c]) ** 2;
+    }
+    sum += Math.sqrt(d / 3);
+    n++;
+  }
+  return n ? sum / n : 0;
 }
 
 // ---------------------------------------------------------------- szum (fBm na szumie wartości)
@@ -412,7 +456,7 @@ function writeIfChanged(path: string, data: Buffer | string): void {
 }
 
 /** Pakowanie półkowe (od najwyższych) jednego atlasu; błąd, gdy nie mieści się w `maxSize`. */
-function writeAtlas(atlas: AtlasDef, items: Baked[]): void {
+function writeAtlas(atlas: AtlasDef, items: Baked[], extraMeta: Record<string, unknown> = {}): void {
   const width = atlas.maxSize;
   const rects: { key: string; layer: Layer; item: Baked; x: number; y: number }[] = [];
   for (const it of items) {
@@ -456,10 +500,11 @@ function writeAtlas(atlas: AtlasDef, items: Baked[]): void {
       sourceSize: { w, h },
       anchor: { x: r.item.anchor[0] / w, y: r.item.anchor[1] / h },
       glow: r.item.glow.map((a) => a.map((v) => Math.round(v * 10) / 10)),
+      ...(r.item.statusFill ? { statusFill: r.item.statusFill } : {}),
     };
   }
   writeIfChanged(join(OUT, `${atlas.key}.png`), PNG.sync.write(png));
-  const meta = { app: 'tools/bakeArt.ts', image: `${atlas.key}.png`, size: { w: width, h: height }, scale: 1, bakeScale: atlas.scale };
+  const meta = { app: 'tools/bakeArt.ts', image: `${atlas.key}.png`, size: { w: width, h: height }, scale: 1, bakeScale: atlas.scale, ...extraMeta };
   writeIfChanged(join(OUT, `${atlas.key}.json`), JSON.stringify({ frames, meta }, null, 1));
   const fill = Math.round((used / (width * atlas.maxSize)) * 100);
   console.log(`bakeArt: atlas ${atlas.key} ${width}×${height}, ${items.length} sprite'ów, ${fill}% budżetu ${atlas.maxSize}²`);
@@ -532,6 +577,14 @@ function composeInGame(it: Baked, color: number, mirror: boolean, f: number): Im
   return { w, h, px: out };
 }
 
+/** Wygląd wroga w chwili migania statusu: tint (mnożenie) albo jednolite wypełnienie kolorem statusu. */
+function statusLook(img: Img, color: number, fill: boolean): Img {
+  const t = [((color >> 16) & 255) / 255, ((color >> 8) & 255) / 255, (color & 255) / 255];
+  const px = new Float32Array(img.px);
+  for (let i = 0; i < px.length; i += 4) for (let c = 0; c < 3; c++) px[i + c] = fill ? t[c] : px[i + c] * t[c];
+  return { w: img.w, h: img.h, px };
+}
+
 interface Cell {
   img: Img;
   zoom: number;
@@ -544,7 +597,7 @@ interface Cell {
  *   postacie i przywołańce: 2 kolory graczy na Station, kolor + lustro na Crater, powiększenie 4× na Station,
  *   przeszkody: promień 40 / 65 / 90 (min / środek / maks. z symulacji) na podłodze swojej mapy.
  */
-function writeSheet(items: Baked[], tiles: Record<string, PNG>): void {
+function writeSheet(items: Baked[], tiles: Record<string, PNG>, statuses: StatusColor[]): void {
   const ZOOM = 4;
   const GAP = 16;
   const floorOf = (name: string): string =>
@@ -557,6 +610,23 @@ function writeSheet(items: Baked[], tiles: Record<string, PNG>): void {
         zoom: 1,
         floor,
       }));
+    }
+    if (it.atlas.key === 'invaders' || it.atlas.key === 'bosses') {
+      // najeźdźca w typowym rozmiarze z gry na obu podłogach + siatka statusów (D6): tint albo — dla par
+      // nieczytelnych — jednolite wypełnienie, dokładnie tak, jak miga w grze
+      const radius = it.atlas.key === 'bosses' ? 45 : it.name === 'inv_brute' ? 26 : 12;
+      const body = it.atlas.key === 'bosses' ? 56 : it.name === 'inv_brute' ? 40 : 30;
+      const f = (radius * INVADER_SIZE) / (body * it.atlas.scale);
+      const plain = composeInGame(it, 0xffffff, false, f);
+      return [
+        { img: plain, zoom: 1, floor: 'station' },
+        { img: plain, zoom: 1, floor: 'crater' },
+        ...statuses.map((st) => ({
+          img: statusLook(plain, st.color, it.statusFill?.includes(st.id) ?? false),
+          zoom: 1,
+          floor: 'station',
+        })),
+      ];
     }
     const isSummon = Object.values(SUMMONS).includes(it.name);
     const f = (SCREEN_PX_PER_UNIT / it.atlas.scale) * (isSummon ? SUMMON_SCALE : 1);
@@ -689,15 +759,24 @@ function main(): void {
   // stary pojedynczy atlas z próbki — dziś atlasy są per kategoria
   for (const old of ['atlas.png', 'atlas.json']) if (existsSync(join(OUT, old))) rmSync(join(OUT, old));
 
+  const statuses = readStatusColors();
   const baked: Baked[] = [];
   for (const f of files) {
     const name = basename(f, '.svg');
     const def = SPRITES[name];
     const atlas = ATLASES[def.atlas];
     if (!atlas) throw new Error(`bakeArt: ${name} wskazuje nieznany atlas "${def.atlas}"`);
-    baked.push(bake(name, readFileSync(join(SRC, f), 'utf-8'), atlas, def.rim));
+    const b = bake(name, readFileSync(join(SRC, f), 'utf-8'), atlas, def.rim);
+    if (atlas.key === 'invaders' || atlas.key === 'bosses') {
+      b.statusFill = statuses.filter((st) => tintDelta(b.base, st.color) < STATUS_READABLE_DELTA).map((st) => st.id);
+    }
+    baked.push(b);
   }
-  for (const atlas of Object.values(ATLASES)) writeAtlas(atlas, baked.filter((b) => b.atlas === atlas));
+  for (const atlas of Object.values(ATLASES)) {
+    // najeźdźcy: lista statusów, z którą liczono `statusFill` — artCheck porównuje ją z grą
+    const extra = atlas.key === 'invaders' || atlas.key === 'bosses' ? { statuses: statuses.map((st) => st.id) } : {};
+    writeAtlas(atlas, baked.filter((b) => b.atlas === atlas), extra);
+  }
 
   // kafle podłoża aren — osobne tekstury pod tileSprite, nie region atlasu
   mkdirSync(join(OUT, 'tiles'), { recursive: true });
@@ -719,7 +798,7 @@ function main(): void {
     const extra = previews.map((f) =>
       bake(`preview/${basename(f, '.svg')}`, readFileSync(join(PREVIEW, f), 'utf-8'), ATLASES.heroes, true),
     );
-    writeSheet([...baked, ...extra], tiles);
+    writeSheet([...baked, ...extra], tiles, statuses);
   }
 }
 

@@ -1,0 +1,72 @@
+<svg data-glow="84 72 10; 46 70 8; 122 76 8" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" width="160" height="160" data-anchor="80 86" data-world="0.21" data-grime="0.9">
+  <!-- Hive Colossus: olbrzymi żuk ulowy — pancerz z kolcami, pomarańczowe worki jaj. -->
+  <ellipse cx="84" cy="146" rx="60" ry="7" fill="#000" opacity="0.3"/>
+  <g stroke="#1a120c" stroke-width="0" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M40 108 L28 132 L32 146" fill="none" stroke-width="7"/>
+  </g>
+  <path d="M40 108 L28 132 L32 146" fill="none" stroke="#313d30" stroke-width="4" stroke-linecap="round"/>
+  <g stroke="#1a120c" stroke-width="0" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M62 108 L56 132 L60 146" fill="none" stroke-width="7"/>
+  </g>
+  <path d="M62 108 L56 132 L60 146" fill="none" stroke="#313d30" stroke-width="4" stroke-linecap="round"/>
+  <g stroke="#1a120c" stroke-width="0" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M98 108 L104 132 L108 146" fill="none" stroke-width="7"/>
+  </g>
+  <path d="M98 108 L104 132 L108 146" fill="none" stroke="#313d30" stroke-width="4" stroke-linecap="round"/>
+  <g stroke="#1a120c" stroke-width="0" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M120 108 L132 132 L136 146" fill="none" stroke-width="7"/>
+  </g>
+  <path d="M120 108 L132 132 L136 146" fill="none" stroke="#313d30" stroke-width="4" stroke-linecap="round"/>
+  <g stroke="#1a120c" stroke-width="3.5" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M18 100 C14 60 46 30 84 30 C122 30 150 60 144 100 C130 118 32 118 18 100 Z" fill="#4d5c4a"/>
+  </g>
+  <path d="M26 96 C24 64 50 40 84 38" stroke="#6f8468" stroke-width="4" fill="none"/>
+  <path d="M84 32 L84 112" stroke="#313d30" stroke-width="3"/>
+  <path d="M30 104 C60 116 110 116 138 104 C120 110 50 110 30 104 Z" fill="#313d30"/>
+  <path d="M55.0 64.5 L62.4 67.2" stroke="#1f2226" stroke-width="1.1" stroke-linecap="round" opacity="0.6"/>
+  <path d="M55.0 63.7 L62.4 66.4" stroke="#a3acb6" stroke-width="0.9" stroke-linecap="round"/>
+  <path d="M103.3 69.9 L109.2 74.0" stroke="#1f2226" stroke-width="1.1" stroke-linecap="round" opacity="0.6"/>
+  <path d="M103.3 69.1 L109.2 73.2" stroke="#a3acb6" stroke-width="0.9" stroke-linecap="round"/>
+  <path d="M104.4 86.6 L112.2 85.6" stroke="#1f2226" stroke-width="1.1" stroke-linecap="round" opacity="0.6"/>
+  <path d="M104.4 85.8 L112.2 84.8" stroke="#a3acb6" stroke-width="0.9" stroke-linecap="round"/>
+  <path d="M95.3 86.0 L92.0 84.2" stroke="#1f2226" stroke-width="1.1" stroke-linecap="round" opacity="0.6"/>
+  <path d="M95.3 85.2 L92.0 83.4" stroke="#a3acb6" stroke-width="0.9" stroke-linecap="round"/>
+  <path d="M105.6 89.6 L112.2 90.3" stroke="#1f2226" stroke-width="1.1" stroke-linecap="round" opacity="0.6"/>
+  <path d="M105.6 88.8 L112.2 89.5" stroke="#a3acb6" stroke-width="0.9" stroke-linecap="round"/>
+  <path d="M76.4 83.3 L82.8 85.4" stroke="#1f2226" stroke-width="1.1" stroke-linecap="round" opacity="0.6"/>
+  <path d="M76.4 82.5 L82.8 84.6" stroke="#a3acb6" stroke-width="0.9" stroke-linecap="round"/>
+  <path d="M30.3 77.9 L34.5 79.5" stroke="#1f2226" stroke-width="1.1" stroke-linecap="round" opacity="0.6"/>
+  <path d="M30.3 77.1 L34.5 78.7" stroke="#a3acb6" stroke-width="0.9" stroke-linecap="round"/>
+  <path d="M65.1 65.4 L72.1 68.9" stroke="#1f2226" stroke-width="1.1" stroke-linecap="round" opacity="0.6"/>
+  <path d="M65.1 64.6 L72.1 68.1" stroke="#a3acb6" stroke-width="0.9" stroke-linecap="round"/>
+  <g stroke="#1a120c" stroke-width="2" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M46 46 L52 26 L58 46 Z" fill="#cfd6c4"/>
+  </g>
+  <g stroke="#1a120c" stroke-width="2" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M66 36 L72 16 L78 36 Z" fill="#cfd6c4"/>
+  </g>
+  <g stroke="#1a120c" stroke-width="2" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M90 36 L96 16 L102 36 Z" fill="#cfd6c4"/>
+  </g>
+  <g stroke="#1a120c" stroke-width="2" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M110 46 L116 26 L122 46 Z" fill="#cfd6c4"/>
+  </g>
+  <g stroke="#1a120c" stroke-width="2" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M128 64 L134 44 L140 64 Z" fill="#cfd6c4"/>
+  </g>
+  <ellipse cx="46" cy="70" rx="9" ry="7.2" fill="#ff8c1a" stroke="#1a120c" stroke-width="2"/>
+  <ellipse cx="43.3" cy="67.3" rx="3.1" ry="2.2" fill="#ffd08a"/>
+  <ellipse cx="62" cy="58" rx="7" ry="5.6" fill="#ff8c1a" stroke="#1a120c" stroke-width="2"/>
+  <ellipse cx="59.9" cy="55.9" rx="2.4" ry="1.8" fill="#ffd08a"/>
+  <ellipse cx="106" cy="60" rx="8" ry="6.4" fill="#ff8c1a" stroke="#1a120c" stroke-width="2"/>
+  <ellipse cx="103.6" cy="57.6" rx="2.8" ry="2.0" fill="#ffd08a"/>
+  <ellipse cx="122" cy="76" rx="9" ry="7.2" fill="#ff8c1a" stroke="#1a120c" stroke-width="2"/>
+  <ellipse cx="119.3" cy="73.3" rx="3.1" ry="2.2" fill="#ffd08a"/>
+  <ellipse cx="84" cy="72" rx="10" ry="8.0" fill="#ff8c1a" stroke="#1a120c" stroke-width="2"/>
+  <ellipse cx="81.0" cy="69.0" rx="3.5" ry="2.5" fill="#ffd08a"/>
+  <g stroke="#1a120c" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M136 84 C148 78 160 84 158 96 C156 106 144 108 136 102 Z" fill="#313d30"/>
+    <path d="M152 100 L160 110 L150 106 Z" fill="#cfd6c4"/>
+  </g>
+  <circle cx="150" cy="90" r="2.5" fill="#ff8c1a" stroke="#1a120c" stroke-width="1"/>
+</svg>

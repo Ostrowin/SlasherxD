@@ -1,0 +1,40 @@
+<svg data-glow="82 80 10; 87 34 8; 127 72 6" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" width="160" height="160" data-anchor="80 86" data-world="0.21" data-grime="0.9">
+  <!-- Void Warden: rycerz pustki w poszarpanej pelerynie, fioletowy wizjer, rdzeń i ostrze. -->
+  <ellipse cx="84" cy="146" rx="36" ry="6" fill="#000" opacity="0.3"/>
+  <g stroke="#1a120c" stroke-width="3" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M56 50 C44 70 36 104 32 138 L44 130 L50 140 L58 128 L66 138 L70 120 C70 94 72 70 76 54 Z" fill="#2a2038"/>
+  </g>
+  <g stroke="#1a120c" stroke-width="3" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M70 110 L64 144 L78 144 L80 112 Z" fill="#2c333c"/>
+    <path d="M86 110 L92 144 L106 144 L98 110 Z" fill="#4a5562"/>
+  </g>
+  <g stroke="#1a120c" stroke-width="3" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M60 50 C68 40 96 40 104 50 L108 96 C100 112 66 112 58 96 Z" fill="#4a5562"/>
+  </g>
+  <path d="M64 60 C74 54 92 54 100 60" stroke="#76889a" stroke-width="2.5" fill="none"/>
+  <circle cx="82" cy="80" r="11" fill="#1a1024" stroke="#1a120c" stroke-width="2.5"/>
+  <circle cx="82" cy="80" r="6" fill="#9d4edd"/><circle cx="80" cy="78" r="2" fill="#e2c8ff"/>
+  <path d="M62 96 C74 104 92 104 104 96" stroke="#2c333c" stroke-width="3" fill="none"/>
+  <path d="M83.9 73.9 L90.3 76.6" stroke="#1f2226" stroke-width="1.1" stroke-linecap="round" opacity="0.6"/>
+  <path d="M83.9 73.1 L90.3 75.8" stroke="#a3acb6" stroke-width="0.9" stroke-linecap="round"/>
+  <path d="M79.7 94.9 L85.6 92.6" stroke="#1f2226" stroke-width="1.1" stroke-linecap="round" opacity="0.6"/>
+  <path d="M79.7 94.1 L85.6 91.8" stroke="#a3acb6" stroke-width="0.9" stroke-linecap="round"/>
+  <path d="M71.5 94.5 L64.9 93.1" stroke="#1f2226" stroke-width="1.1" stroke-linecap="round" opacity="0.6"/>
+  <path d="M71.5 93.7 L64.9 92.3" stroke="#a3acb6" stroke-width="0.9" stroke-linecap="round"/>
+  <path d="M91.1 77.9 L97.6 73.5" stroke="#1f2226" stroke-width="1.1" stroke-linecap="round" opacity="0.6"/>
+  <path d="M91.1 77.1 L97.6 72.7" stroke="#a3acb6" stroke-width="0.9" stroke-linecap="round"/>
+  <path d="M100.6 68.7 L95.1 67.6" stroke="#1f2226" stroke-width="1.1" stroke-linecap="round" opacity="0.6"/>
+  <path d="M100.6 67.9 L95.1 66.8" stroke="#a3acb6" stroke-width="0.9" stroke-linecap="round"/>
+  <path d="M73.2 77.8 L68.7 79.8" stroke="#1f2226" stroke-width="1.1" stroke-linecap="round" opacity="0.6"/>
+  <path d="M73.2 77.0 L68.7 79.0" stroke="#a3acb6" stroke-width="0.9" stroke-linecap="round"/>
+  <g stroke="#1a120c" stroke-width="3" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M68 44 C66 26 74 14 84 14 C96 14 102 26 100 44 C92 50 76 50 68 44 Z" fill="#2c333c"/>
+    <path d="M84 14 L86 0 L90 16 Z" fill="#4a5562"/>
+  </g>
+  <path d="M76 32 C82 28 94 28 98 32 L96 38 C90 36 82 36 78 38 Z" fill="#9d4edd" stroke="#1a120c" stroke-width="1.5"/>
+  <g stroke="#1a120c" stroke-width="3" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M102 54 C116 58 124 70 122 84 L112 86 C112 74 108 66 100 64 Z" fill="#4a5562"/>
+    <path d="M112 84 L136 58 L140 62 L118 92 Z" fill="#2c333c"/>
+  </g>
+  <path d="M116 86 L138 60" stroke="#9d4edd" stroke-width="2"/>
+</svg>

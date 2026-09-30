@@ -1,0 +1,43 @@
+<svg data-glow="99 38 6; 122 70 9; 112 96 9" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" width="160" height="160" data-anchor="80 86" data-world="0.21" data-grime="0.9">
+  <!-- Plasma Reaver: smukły zabójca-owad z dwiema plazmowymi kosami, cyjanowe ostrza i oczy. -->
+  <ellipse cx="72" cy="146" rx="34" ry="6" fill="#000" opacity="0.3"/>
+  <g stroke="#1a120c" stroke-width="0" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M62 104 L48 128 L54 146" fill="none" stroke-width="7"/>
+    <path d="M84 104 L96 128 L90 146" fill="none" stroke-width="7"/>
+    <path d="M72 106 L72 130 L66 146" fill="none" stroke-width="6"/>
+  </g>
+  <path d="M62 104 L48 128 L54 146 M84 104 L96 128 L90 146 M72 106 L72 130 L66 146" fill="none" stroke="#2c333c" stroke-width="3.6" stroke-linecap="round"/>
+  <g stroke="#1a120c" stroke-width="3" stroke-linejoin="round" stroke-linecap="round">
+    <ellipse cx="54" cy="96" rx="22" ry="14" fill="#2c333c"/>
+    <path d="M60 104 C54 84 62 64 80 60 C98 58 104 76 98 94 C92 106 72 110 60 104 Z" fill="#4a5562"/>
+    <path d="M84 64 C84 46 94 30 106 18 C112 32 108 50 100 66 Z" fill="#4a5562"/>
+  </g>
+  <path d="M40 92 L30 84 M48 88 L42 76 M58 86 L54 74" stroke="#00e5ff" stroke-width="2.5" stroke-linecap="round"/>
+  <path d="M68 72 C76 68 88 68 94 74" stroke="#76889a" stroke-width="2.5" fill="none"/>
+  <ellipse cx="99" cy="38" rx="4.2" ry="1.7" fill="#00e5ff" stroke="#1a120c" stroke-width="1"/>
+  <ellipse cx="95" cy="48" rx="3.1" ry="1.2" fill="#00e5ff" stroke="#1a120c" stroke-width="1"/>
+  <path d="M88.7 73.7 L83.0 72.7" stroke="#1f2226" stroke-width="1.1" stroke-linecap="round" opacity="0.6"/>
+  <path d="M88.7 72.9 L83.0 71.9" stroke="#a3acb6" stroke-width="0.9" stroke-linecap="round"/>
+  <path d="M76.3 83.0 L80.0 83.8" stroke="#1f2226" stroke-width="1.1" stroke-linecap="round" opacity="0.6"/>
+  <path d="M76.3 82.2 L80.0 83.0" stroke="#a3acb6" stroke-width="0.9" stroke-linecap="round"/>
+  <path d="M87.0 89.5 L93.8 89.3" stroke="#1f2226" stroke-width="1.1" stroke-linecap="round" opacity="0.6"/>
+  <path d="M87.0 88.7 L93.8 88.5" stroke="#a3acb6" stroke-width="0.9" stroke-linecap="round"/>
+  <path d="M84.7 85.4 L89.7 87.4" stroke="#1f2226" stroke-width="1.1" stroke-linecap="round" opacity="0.6"/>
+  <path d="M84.7 84.6 L89.7 86.6" stroke="#a3acb6" stroke-width="0.9" stroke-linecap="round"/>
+  <path d="M68.5 79.6 L61.3 81.7" stroke="#1f2226" stroke-width="1.1" stroke-linecap="round" opacity="0.6"/>
+  <path d="M68.5 78.8 L61.3 80.9" stroke="#a3acb6" stroke-width="0.9" stroke-linecap="round"/>
+  <g stroke="#1a120c" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M90 76 L112 72 L116 80 L94 86 Z" fill="#4a5562"/>
+  </g>
+  <g stroke="#1a120c" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M112 74 L120 60 L138 86 L124 72 Z" fill="#00e5ff"/>
+  </g>
+  <path d="M122 64 L132 78" stroke="#b8f8ff" stroke-width="1.8"/>
+  <g stroke="#1a120c" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M76 84 L100 96 L96 102 L72 92 Z" fill="#2c333c"/>
+  </g>
+  <g stroke="#1a120c" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M98 98 L108 92 L126 118 L112 104 Z" fill="#00e5ff"/>
+  </g>
+  <path d="M110 96 L120 110" stroke="#b8f8ff" stroke-width="1.8"/>
+</svg>

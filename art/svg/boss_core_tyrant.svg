@@ -1,0 +1,56 @@
+<svg data-glow="80 76 16; 80 45 7; 80 8 5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" width="160" height="160" data-anchor="80 86" data-world="0.21" data-grime="1.0">
+  <!-- Core Tyrant: mech-tyran z blokowego pancerza, złoty reaktor w piersi, korona z kominów, pięści-tłoki. -->
+  <ellipse cx="80" cy="146" rx="56" ry="7" fill="#000" opacity="0.3"/>
+  <g stroke="#1a120c" stroke-width="3" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M50 110 L44 146 L70 146 L68 112 Z" fill="#2c333c"/>
+    <path d="M92 112 L90 146 L116 146 L110 110 Z" fill="#4a5562"/>
+  </g>
+  <g stroke="#1a120c" stroke-width="3.5" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M36 54 C40 40 60 34 80 34 C102 34 120 40 124 54 L126 104 C114 118 46 118 34 104 Z" fill="#4a5562"/>
+  </g>
+  <path d="M40 56 C50 44 70 40 84 40" stroke="#76889a" stroke-width="3" fill="none"/>
+  <path d="M34 100 C50 112 110 112 126 100" stroke="#2c333c" stroke-width="4" fill="none"/>
+    <circle cx="44" cy="60" r="2" fill="#76889a"/>
+    <circle cx="116" cy="60" r="2" fill="#76889a"/>
+    <circle cx="44" cy="98" r="2" fill="#76889a"/>
+    <circle cx="116" cy="98" r="2" fill="#76889a"/>
+    <circle cx="60" cy="106" r="2" fill="#76889a"/>
+    <circle cx="100" cy="106" r="2" fill="#76889a"/>
+  <path d="M47.0 71.1 L42.1 74.5" stroke="#1f2226" stroke-width="1.1" stroke-linecap="round" opacity="0.6"/>
+  <path d="M47.0 70.3 L42.1 73.7" stroke="#a3acb6" stroke-width="0.9" stroke-linecap="round"/>
+  <path d="M66.6 70.6 L72.2 67.6" stroke="#1f2226" stroke-width="1.1" stroke-linecap="round" opacity="0.6"/>
+  <path d="M66.6 69.8 L72.2 66.8" stroke="#a3acb6" stroke-width="0.9" stroke-linecap="round"/>
+  <path d="M78.4 77.4 L84.6 74.8" stroke="#1f2226" stroke-width="1.1" stroke-linecap="round" opacity="0.6"/>
+  <path d="M78.4 76.6 L84.6 74.0" stroke="#a3acb6" stroke-width="0.9" stroke-linecap="round"/>
+  <path d="M54.7 57.9 L49.7 57.8" stroke="#1f2226" stroke-width="1.1" stroke-linecap="round" opacity="0.6"/>
+  <path d="M54.7 57.1 L49.7 57.0" stroke="#a3acb6" stroke-width="0.9" stroke-linecap="round"/>
+  <path d="M61.4 53.1 L67.0 52.0" stroke="#1f2226" stroke-width="1.1" stroke-linecap="round" opacity="0.6"/>
+  <path d="M61.4 52.3 L67.0 51.2" stroke="#a3acb6" stroke-width="0.9" stroke-linecap="round"/>
+  <path d="M56.7 53.4 L62.6 50.2" stroke="#1f2226" stroke-width="1.1" stroke-linecap="round" opacity="0.6"/>
+  <path d="M56.7 52.6 L62.6 49.4" stroke="#a3acb6" stroke-width="0.9" stroke-linecap="round"/>
+  <path d="M88.2 78.2 L81.9 75.3" stroke="#1f2226" stroke-width="1.1" stroke-linecap="round" opacity="0.6"/>
+  <path d="M88.2 77.4 L81.9 74.5" stroke="#a3acb6" stroke-width="0.9" stroke-linecap="round"/>
+  <path d="M106.4 65.6 L100.3 63.8" stroke="#1f2226" stroke-width="1.1" stroke-linecap="round" opacity="0.6"/>
+  <path d="M106.4 64.8 L100.3 63.0" stroke="#a3acb6" stroke-width="0.9" stroke-linecap="round"/>
+  <path d="M60.1 60.6 L56.7 58.3" stroke="#1f2226" stroke-width="1.1" stroke-linecap="round" opacity="0.6"/>
+  <path d="M60.1 59.8 L56.7 57.5" stroke="#a3acb6" stroke-width="0.9" stroke-linecap="round"/>
+  <path d="M60.7 76.1 L56.2 77.8" stroke="#1f2226" stroke-width="1.1" stroke-linecap="round" opacity="0.6"/>
+  <path d="M60.7 75.3 L56.2 77.0" stroke="#a3acb6" stroke-width="0.9" stroke-linecap="round"/>
+  <circle cx="80" cy="76" r="18" fill="#1a120c"/>
+  <circle cx="80" cy="76" r="15" fill="#3a2c08" stroke="#2c333c" stroke-width="2"/>
+  <circle cx="80" cy="76" r="10" fill="#ffcf3f"/>
+  <circle cx="77" cy="73" r="3.5" fill="#fff2b8"/>
+  <path d="M62 76 L52 76 M98 76 L108 76 M80 58 L80 50" stroke="#ffcf3f" stroke-width="3"/>
+  <g stroke="#1a120c" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round">
+    <rect x="58" y="16" width="10" height="20" rx="2" fill="#2c333c"/>
+    <rect x="75" y="8" width="10" height="28" rx="2" fill="#4a5562"/>
+    <rect x="92" y="16" width="10" height="20" rx="2" fill="#2c333c"/>
+  </g>
+  <path d="M60 16 L66 16 M77 8 L83 8 M94 16 L100 16" stroke="#ffcf3f" stroke-width="3"/>
+  <path d="M66 42 C72 38 88 38 94 42 L92 50 C86 48 74 48 68 50 Z" fill="#ffcf3f" stroke="#1a120c" stroke-width="2"/>
+  <g stroke="#1a120c" stroke-width="3" stroke-linejoin="round" stroke-linecap="round">
+    <rect x="10" y="66" width="28" height="36" rx="7" fill="#2c333c"/>
+    <rect x="122" y="66" width="28" height="36" rx="7" fill="#4a5562"/>
+  </g>
+  <path d="M14 78 L34 78 M14 90 L34 90 M126 78 L146 78 M126 90 L146 90" stroke="#76889a" stroke-width="2.5"/>
+</svg>

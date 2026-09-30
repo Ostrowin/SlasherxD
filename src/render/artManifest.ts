@@ -26,6 +26,10 @@ export const ATLASES: Record<string, AtlasDef> = {
   heroes: { key: 'heroes', scale: 0.75, maxSize: 2048 },
   // przeszkody aren: na ekranie do ~180 px (promień kolizji 90), więc gęściej niż postacie
   world: { key: 'world', scale: 1.5, maxSize: 2048 },
+  // horda: wróg ~16-35 px promienia na ekranie; skala pod największego (brute) z zapasem na zamach ×1.25
+  invaders: { key: 'invaders', scale: 0.9, maxSize: 2048 },
+  // bossowie: promień do ~67 px na ekranie, szarża ×1.12
+  bosses: { key: 'bosses', scale: 1.35, maxSize: 2048 },
 };
 
 export interface SpriteDef {
@@ -48,7 +52,56 @@ export const SPRITES: Record<string, SpriteDef> = {
   obs_crater_boulder: { atlas: 'world', rim: false },
   obs_crater_spire: { atlas: 'world', rim: false },
   obs_crater_vent: { atlas: 'world', rim: false },
+  inv_alien: { atlas: 'invaders', rim: false },
+  inv_demon: { atlas: 'invaders', rim: false },
+  inv_mage: { atlas: 'invaders', rim: false },
+  inv_robot: { atlas: 'invaders', rim: false },
+  inv_brute: { atlas: 'invaders', rim: false },
+  boss_void_warden: { atlas: 'bosses', rim: false },
+  boss_plasma_reaver: { atlas: 'bosses', rim: false },
+  boss_hive_colossus: { atlas: 'bosses', rim: false },
+  boss_hive_queen: { atlas: 'bosses', rim: false },
+  boss_core_tyrant: { atlas: 'bosses', rim: false },
+  boss_ember_stalker: { atlas: 'bosses', rim: false },
+  boss_obsidian_colossus: { atlas: 'bosses', rim: false },
 };
+
+/**
+ * Najeźdźcy (plan, Etap 3): id z `src/sim/enemies.ts` / `src/sim/bosses/` → klatka i promień ciała w rysunku
+ * (jedn. SVG, tools/svg_gen/ws_invaders.py). Gra skaluje sprite tak, żeby ciało = promień z symulacji
+ * × INVADER_SIZE. Bez obwódki (D4); kolor typu żyje w oczach i rdzeniach rysunku.
+ */
+export interface InvaderArtDef {
+  frame: string;
+  body: number;
+}
+
+/** Rysunek jest o tyle większy niż hitbox — jak postać gracza (61 px wzrostu przy hitboxie 28). */
+export const INVADER_SIZE = 1.35;
+
+export const ENEMY_ART: Record<string, InvaderArtDef> = {
+  alien: { frame: 'inv_alien', body: 30 },
+  demon: { frame: 'inv_demon', body: 30 },
+  mage: { frame: 'inv_mage', body: 30 },
+  robot: { frame: 'inv_robot', body: 30 },
+  brute: { frame: 'inv_brute', body: 40 },
+};
+
+export const BOSS_ART: Record<string, InvaderArtDef> = {
+  'void-warden': { frame: 'boss_void_warden', body: 56 },
+  'plasma-reaver': { frame: 'boss_plasma_reaver', body: 56 },
+  'hive-colossus': { frame: 'boss_hive_colossus', body: 56 },
+  'hive-queen': { frame: 'boss_hive_queen', body: 56 },
+  'core-tyrant': { frame: 'boss_core_tyrant', body: 56 },
+  'ember-stalker': { frame: 'boss_ember_stalker', body: 56 },
+  'obsidian-colossus': { frame: 'boss_obsidian_colossus', body: 56 },
+};
+
+/**
+ * Próg czytelności statusu (D6): średnia zmiana koloru rysunku przy miganiu tintem statusu (0..1).
+ * Pary poniżej progu `bakeArt` zapisuje w klatce jako `statusFill` → gra miga jednolitym kolorem statusu.
+ */
+export const STATUS_READABLE_DELTA = 0.1;
 
 /** Promień okrągłego śladu przeszkody w jednostkach SVG (tools/svg_gen/ws_world.py: FOOT). */
 export const OBSTACLE_FOOT = 52;
