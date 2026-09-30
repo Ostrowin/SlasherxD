@@ -16,7 +16,8 @@
 - [ ] Specjalizacje pozostałych klas (znane: kret → Sniper, zając → Aura Master)
 - [ ] Co przyciąga do kolejnego runu bez odblokowań — wybór trudności w lobby? (gdd.md 5.8)
 - [ ] Sci-fi bronie (bardzo sci-fi — kierunek potwierdzony, konkrety później)
-- [ ] Grafiki (na razie celowo kolory zamiast sprite'ów)
+- [~] Grafiki — **2026-09-30: plan zatwierdzony** (`docs/designs/plan-grafik.md`, etapy 0-4: narzędzia → niedźwiedzie → mapa → wrogowie i bossowie → reszta ras). Próbka Grawitanta w grze. Bieżący etap: **0**
+- [ ] **`npm run lint` pada na `Math.random`** w `src/render/GameScene.ts:2044` (efekt błyskawicy, tylko render). Naprawa: `Rng` z `src/sim/rng.ts` z osobnym seedem renderu albo lokalny wyjątek ESLint z komentarzem. Czysty lint przed etapami grafiki (plan-eng-review 2026-09-30)
 - [~] Więcej bossów — **2026-08-22: fale 5/7/9/10 obsadzone** (Void Warden, PLASMA REAVER, HIVE COLOSSUS,
       Hive Queen). Hive Queen (10) **wzmocniona**: HP 900→1250, +dmg, szybsze ataki, NOWA 3. faza „THE HIVE
       CONSUMES ALL". Nowe bossy mają prymitywy startowe — do STROJENIA. (nowy boss = plik w `src/sim/bosses/`
@@ -202,10 +203,21 @@ pierścień ×2, amulet, buty, rękawice, pas. Broń 2H blokuje off-hand w zamia
       SCAFFOLDING + BATCH 1 ZROBIONE 2026-08-23: tier `Legendary` (rarity 3, waga 0 = tylko z bossów),
       pole `unique` na `GearPiece`, rejestr `LEGENDARIES` (`gearConfig.ts`). Drop `rollLegendary` — TYLKO z bossa,
       pod klasę+wybrany spec zabójcy, BEZ DUBLI (equipped+bag). `Player.uniqueEffects` przeliczane w `recomputeGear`
-      (ODWRACALNE); sim czyta `uniqueEffects.has(id)`. 3 efekty: stormfang (wolf-thunder ricochet+3),
-      lightspeed-greaves (hog-sonic spd→dmg ×2), heart-of-berserker (bear-rampage missing+0.25). Ad-hoc 14/14.
-      ZOSTAJE: ~57 pozostałych (wpis + hook), `accumulateGearAffix` += afixy minion/chain, prymitywy
-      `ward`/`shield`/`fling` + `blocksProjectiles`, specy `comingSoon`, drop multi-boss (dubel na ziemi).
+      (ODWRACALNE); sim czyta `uniqueEffects.has(id)`. BATCH 1 (7): stormfang, lightspeed-greaves,
+      heart-of-berserker, deadeye-scope, railgun-barrel, neutron-core, event-horizon.
+      **BATCH 2 ZROBIONE 2026-08-27 (+15 → rejestr 22, KAŻDA klasa pokryta):** titanheart (bear-hib),
+      unbreakable-shell (hog-curl), moonpelt (wolf-howl), warg-totem (wolf-alpha), bond-of-the-pack (hare-summoner),
+      crown-of-dread (bat-terror), echo-lens (bat-sonar), gauntlet-of-domination (gor-iron), fangs-of-scurry
+      (rat-scurry), overclocked-totems (boar-eng), mirrors-edge (ott-mirror), laughing-fang (hy-cackle),
+      bonelords-sigil (hy-necro), cinderheart (mole-magma), quiver-of-infinity (fox-arcane). tsc+testy OK,
+      cross-check id↔hook 22/22, legendariesFor 15/15.
+      **BATCH 3 ZROBIONE 2026-08-27 (+8 → rejestr 30; KAŻDY realny spec pokryty, 28/28):** hourglass-of-the-void
+      (fox-chrono), windstep-boots (hare-slip), conductors-baton (hare-aura), demolition-charge (mole-sapper),
+      overcharge-capacitor (hog-bastion), swarmlord-scepter (rat-swarm), evertide-shell (ott-tide),
+      bouncing-current (otter-playful). tsc+testy OK, cross-check id↔hook 30/30, legendariesFor 8/8.
+      ZOSTAJE: EKSPANSJA (2.–3. legendarka na spec z `LegendaryEquipment.md`); `accumulateGearAffix` += afixy
+      minion/chain; prymitywy `ward`/`shield` + `blocksProjectiles` (`fling` już jest); gałęzie-zaślepki
+      (pasywne + `comingSoon`) wymagają najpierw zbudowania speca; drop multi-boss; STROJENIE liczb w grze.
 - [ ] **Źródło dropu gearu** — bossy/moby/gwarant z bossa? (dziś: 2% z każdego moba)
 - [ ] **Off-hand** — druga broń (dual-wield, +auto) czy focus (+skill)?
 - [ ] **Strojenie liczb** — wagi rarity, zakresy afixów, szanse dropu (placeholdery w `gearConfig.ts`).

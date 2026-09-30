@@ -334,6 +334,188 @@ export const LEGENDARIES: LegendaryDef[] = [
     affixes: [{ kind: 'skillPower', value: 25 }, { kind: 'cooldown', value: 12 }],
     effect: 'Enemies under GRAVITY DRAG take +30% damage from you.',
   },
+
+  // ── BEAR — HIBERNATION (tank snu → kolos; obrona staje się ofensywą) ──
+  {
+    id: 'titanheart', name: 'Titanheart', classId: 'bear', specId: 'bear-hib',
+    slotType: 'amulet',
+    affixes: [{ kind: 'maxHp', value: 35 }, { kind: 'armor', value: 2 }],
+    effect: 'Bonus max HP over base converts to damage (defense becomes offense).',
+  },
+
+  // ── WOLF — ALPHA PACK (dowódca watahy) ──
+  {
+    id: 'warg-totem', name: 'Warg Totem', classId: 'wolf', specId: 'wolf-alpha',
+    slotType: 'belt',
+    affixes: [{ kind: 'maxHp', value: 20 }, { kind: 'strength', value: 15 }],
+    effect: 'Your wolf pack is +2 larger (more SWIPE echoes, more allies).',
+  },
+  // ── WOLF — HOWL (wilkołacza forma karmiona zabójstwami) ──
+  {
+    id: 'moonpelt', name: 'Moonpelt', classId: 'wolf', specId: 'wolf-howl',
+    slotType: 'body',
+    affixes: [{ kind: 'strength', value: 20 }, { kind: 'leech', value: 1.5 }],
+    effect: 'In WEREWOLF form every kill extends the form twice as long.',
+  },
+
+  // ── FOX — ARCANE ARCHER (łańcuchowe strzały) ──
+  {
+    id: 'quiver-of-infinity', name: 'Quiver of Infinity', classId: 'fox', specId: 'fox-arcane',
+    slotType: 'weapon', twoHanded: true,
+    affixes: [
+      { kind: 'projectileCount', value: 2 }, { kind: 'chainCount', value: 2 },
+      { kind: 'skillPower', value: 15 },
+    ],
+    effect: '+2 arrows, +2 chains, and arrows reach 50% further between bounces.',
+  },
+
+  // ── HARE — SUMMONER (armia przyzwań) ──
+  {
+    id: 'bond-of-the-pack', name: 'Bond of the Pack', classId: 'hare', specId: 'hare-summoner',
+    slotType: 'ring',
+    affixes: [{ kind: 'skillPower', value: 15 }, { kind: 'cooldown', value: 10 }],
+    effect: '+1 to the maximum count of all your summons.',
+  },
+
+  // ── BAT — NIGHT TERROR (wampir sączący życie) ──
+  {
+    id: 'crown-of-dread', name: 'Crown of Dread', classId: 'bat', specId: 'bat-terror',
+    slotType: 'head',
+    affixes: [{ kind: 'maxHp', value: 30 }, { kind: 'cooldown', value: 10 }],
+    effect: 'LIFE SIPHON drains from +2 additional targets.',
+  },
+  // ── BAT — SONAR (echa dźwięku po hordzie) ──
+  {
+    id: 'echo-lens', name: 'Echo Lens', classId: 'bat', specId: 'bat-sonar',
+    slotType: 'head',
+    affixes: [{ kind: 'chainCount', value: 2 }, { kind: 'range', value: 12 }],
+    effect: 'Sonic waves echo 50% further between enemies.',
+  },
+
+  // ── GORILLA — IRON GRIP (tank-kotwica, peel) ──
+  {
+    id: 'gauntlet-of-domination', name: 'Gauntlet of Domination', classId: 'gorilla', specId: 'gor-iron',
+    slotType: 'gloves',
+    affixes: [{ kind: 'strength', value: 15 }, { kind: 'armor', value: 2 }],
+    effect: 'GROUND SLAM stuns everything it hits (peel + a window for TITAN SMASH).',
+  },
+
+  // ── RAT — SCURRY (truciciel hit-and-run) ──
+  {
+    id: 'fangs-of-scurry', name: 'Fangs of Scurry', classId: 'rat', specId: 'rat-scurry',
+    slotType: 'weapon',
+    affixes: [{ kind: 'attackSpeed', value: 20 }, { kind: 'leech', value: 1.2 }],
+    effect: 'Every auto-attack applies an EXTRA stack of VENOM.',
+  },
+
+  // ── BOAR — TOTEM ENGINEER (farma totemów) ──
+  {
+    id: 'overclocked-totems', name: 'Overclocked Totems', classId: 'boar', specId: 'boar-eng',
+    slotType: 'amulet',
+    affixes: [{ kind: 'skillPower', value: 15 }, { kind: 'maxHp', value: 20 }],
+    effect: '+1 maximum deployed totem/turret.',
+  },
+
+  // ── OTTER — MIRROR TIDE (asasyn klonów żerujący na SOAKED) ──
+  {
+    id: 'mirrors-edge', name: "Mirror's Edge", classId: 'otter', specId: 'ott-mirror',
+    slotType: 'ring',
+    affixes: [{ kind: 'critChance', value: 5 }, { kind: 'critDamage', value: 20 }],
+    effect: 'You deal +25% damage to SOAKED enemies (lance soaks, clones feast).',
+  },
+
+  // ── HYENA — CACKLE (egzekutor rannych) ──
+  {
+    id: 'laughing-fang', name: 'Laughing Fang', classId: 'hyena', specId: 'hy-cackle',
+    slotType: 'weapon',
+    affixes: [{ kind: 'strength', value: 15 }, { kind: 'leech', value: 1.2 }],
+    effect: 'Non-boss enemies below 25% HP are executed instantly.',
+  },
+  // ── HYENA — NECROMANCER (horda nieumarłych) ──
+  {
+    id: 'bonelords-sigil', name: "Bonelord's Sigil", classId: 'hyena', specId: 'hy-necro',
+    slotType: 'amulet',
+    affixes: [{ kind: 'skillPower', value: 15 }, { kind: 'maxHp', value: 20 }],
+    effect: '+1 to your maximum risen undead.',
+  },
+
+  // ── MOLE — MAGMA (mag ognia; wszystko płonie) ──
+  {
+    id: 'cinderheart', name: 'Cinderheart', classId: 'mole', specId: 'mole-magma',
+    slotType: 'amulet',
+    affixes: [{ kind: 'skillPower', value: 20 }, { kind: 'critChance', value: 5 }],
+    effect: 'Burning enemies take +30% damage from you.',
+  },
+
+  // ── HEDGEHOG — CURL (tank, którego HP jest obrażeniami) ──
+  {
+    id: 'unbreakable-shell', name: 'Unbreakable Shell', classId: 'hedgehog', specId: 'hog-curl',
+    slotType: 'amulet',
+    affixes: [{ kind: 'maxHp', value: 25 }, { kind: 'armor', value: 2 }],
+    effect: 'Your max HP converts to damage 50% harder.',
+  },
+
+  // ── FOX — CHRONOMANCER (kontrola czasu i terenu) ──
+  {
+    id: 'hourglass-of-the-void', name: 'Hourglass of the Void', classId: 'fox', specId: 'fox-chrono',
+    slotType: 'amulet',
+    affixes: [{ kind: 'skillPower', value: 20 }, { kind: 'cooldown', value: 12 }],
+    effect: 'TIME STOP lasts 50% longer (a bigger burst window).',
+  },
+
+  // ── HARE — SLIPSTREAM (skoczek wpadający w hordę) ──
+  {
+    id: 'windstep-boots', name: 'Windstep Boots', classId: 'hare', specId: 'hare-slip',
+    slotType: 'boots',
+    affixes: [{ kind: 'speed', value: 15 }, { kind: 'strength', value: 10 }],
+    effect: 'Your jump/dash landing CHILLS survivors (a frostfield on impact).',
+  },
+  // ── HARE — AURA MASTER (mobilna stacja buffów) ──
+  {
+    id: 'conductors-baton', name: "Conductor's Baton", classId: 'hare', specId: 'hare-aura',
+    slotType: 'head',
+    affixes: [{ kind: 'range', value: 12 }, { kind: 'cooldown', value: 10 }],
+    effect: 'Slot auras stay active even while their skill is on cooldown.',
+  },
+
+  // ── MOLE — SAPPER (miny i wieżyczki) ──
+  {
+    id: 'demolition-charge', name: 'Demolition Charge', classId: 'mole', specId: 'mole-sapper',
+    slotType: 'belt',
+    affixes: [{ kind: 'cooldown', value: 10 }, { kind: 'maxHp', value: 20 }],
+    effect: 'Your mines and blasts set enemies on fire (BURN).',
+  },
+
+  // ── HEDGEHOG — BASTION (builder: turret + mury) ──
+  {
+    id: 'overcharge-capacitor', name: 'Overcharge Capacitor', classId: 'hedgehog', specId: 'hog-bastion',
+    slotType: 'amulet',
+    affixes: [{ kind: 'attackSpeed', value: 20 }, { kind: 'critChance', value: 5 }],
+    effect: 'SENTRY bolts chain +3 times through the horde (OVERCHARGE, always on).',
+  },
+
+  // ── RAT — SWARM (dowódca zarazy) ──
+  {
+    id: 'swarmlord-scepter', name: 'Swarmlord Scepter', classId: 'rat', specId: 'rat-swarm',
+    slotType: 'weapon', twoHanded: true,
+    affixes: [{ kind: 'strength', value: 20 }, { kind: 'maxHp', value: 20 }],
+    effect: 'SWARM summons +50% more rats (more carriers, bigger RUPTURE).',
+  },
+
+  // ── OTTER — TIDECALLER (support fal i aur) ──
+  {
+    id: 'evertide-shell', name: 'Evertide Shell', classId: 'otter', specId: 'ott-tide',
+    slotType: 'body',
+    affixes: [{ kind: 'regen', value: 1.2 }, { kind: 'armor', value: 2 }],
+    effect: 'TIDE GUARD is always on (armor + heal + SOAKED, permanently).',
+  },
+  // ── OTTER — PLAYFUL (pinball na krótkich cooldownach) ──
+  {
+    id: 'bouncing-current', name: 'Bouncing Current', classId: 'otter', specId: 'otter-playful',
+    slotType: 'belt',
+    affixes: [{ kind: 'knockback', value: 20 }, { kind: 'strength', value: 10 }],
+    effect: 'TAIL SLAP soaks the enemies it flings (softens them for collisions).',
+  },
 ];
 
 /** Legendarki pasujące do klasy + speca gracza (do rolla dropu z bossa). */

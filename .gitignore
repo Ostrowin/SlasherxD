@@ -8,3 +8,6 @@ dist/
 
 # Wynik kompilacji bencha (npm run bench)
 .bench/
+
+# Lokalny indeks i stan Visual Studio (pliki blokowane przez otwarte VS)
+.vs/

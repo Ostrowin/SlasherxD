@@ -3,6 +3,7 @@ import { PROGRESSION, talentSlotsFor } from '../src/sim/talentsConfig';
 import { UPGRADES } from '../src/sim/wavesConfig';
 import { COMBOS } from '../src/sim/comboConfig';
 import { minionById, minionEffectRadius } from '../src/sim/minionsConfig';
+import { EQUIP_SLOTS, acceptsPiece, type GearPiece } from '../src/sim/gearConfig';
 import type { ItemKind } from '../src/sim/itemsConfig';
 import * as C from '../src/sim/constants';
 
@@ -273,6 +274,61 @@ function skillCast(
   input.skillCast = bestSlot;
 }
 
+/**
+ * Wartość części dla bota. Rarity dominuje (mnożnik 1000), więc legendarka
+ * (rarity 3) ZAWSZE bije zwykły loot i zostaje założona — o to chodzi, bo to
+ * ona definiuje build. Suma afiksów rozstrzyga remisy w obrębie tego samego
+ * tieru. Prymitywna, ale wystarczy: bench ma NOSIĆ loot, nie optymalizować go.
+ */
+function pieceValue(piece: GearPiece | null): number {
+  if (!piece) return -1;
+  let v = piece.rarity * 1000;
+  for (const a of piece.affixes) v += a.value;
+  return v;
+}
+
+/**
+ * Zakłada z plecaka NAJLEPSZĄ część, która jest ulepszeniem — jedna na wywołanie
+ * (`equipFromBag` to pojedynczy indeks). W przerwie trwa to wiele ticków, więc
+ * bot zdąży ubrać cały wartościowy plecak. Celujemy w NAJSŁABSZY pasujący slot
+ * (albo pusty), żeby nie wyrzucić lepszej części — resztą (reguła 2H↔off-hand,
+ * księgowanie miejsca) zajmuje się `handleGearCommands`.
+ *
+ * Bez tego bot NIGDY nie nosił lootu: gear i wszystkie legendarki leżały w
+ * plecaku i nie wchodziły do żadnego pomiaru balansu.
+ */
+function gearEquip(p: Player, input: SimInput): void {
+  let bestBag = -1;
+  let bestSlot = -1;
+  let bestGain = 0; // działamy tylko przy realnym ulepszeniu (> 0)
+  for (let bi = 0; bi < p.bag.length; bi++) {
+    const piece = p.bag[bi];
+    if (!piece) continue;
+    // Najsłabszy slot pasujący TYPEM (pusty liczy się jako wartość -1).
+    let worstSlot = -1;
+    let worstVal = Infinity;
+    for (let si = 0; si < EQUIP_SLOTS.length; si++) {
+      if (!acceptsPiece(si, piece)) continue;
+      const v = pieceValue(p.equipped[si]);
+      if (v < worstVal) {
+        worstVal = v;
+        worstSlot = si;
+      }
+    }
+    if (worstSlot < 0) continue;
+    const gain = pieceValue(piece) - worstVal;
+    if (gain > bestGain) {
+      bestGain = gain;
+      bestBag = bi;
+      bestSlot = worstSlot;
+    }
+  }
+  if (bestBag >= 0) {
+    input.equipFromBag = bestBag;
+    input.equipToSlot = bestSlot;
+  }
+}
+
 function bestUpgrade(p: Player): number {
   if (p.hasPickedThisBreak || p.upgradeChoices.length === 0) return -1;
   for (const kind of UPGRADE_PRIORITY) {
@@ -289,7 +345,12 @@ export function botInput(w: World, p: Player, policy: Policy, branch = 0): SimIn
 
   // Pasywny bot: stoi i nic nie robi. To jest podłoga trudności —
   // jeśli TAKI bot wygrywa, gra jest zepsuta (patrz playtest 2026-07-19).
+  // Gearu NIE zakłada świadomie: floor ma pozostać czystym „nic nie robię".
   if (policy === 'passive') return input;
+
+  // A: aktywny bot ubiera loot w bezpiecznym oknie przerwy (gear + legendarki).
+  // Dopiero to sprawia, że warstwa gearu i efekty legendarek wchodzą do pomiaru.
+  if (w.phase === 'break') gearEquip(p, input);
 
   const near = nearestMob(w, p);
   if (!near) {

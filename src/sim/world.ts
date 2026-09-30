@@ -38,6 +38,9 @@ import * as C from './constants';
 /** Indeksy statusów używane przez legendarki — policzone raz (findIndex nie w pętli). */
 const STATUS_GRAVITY_DRAG = statusIndexById('gravity-drag');
 const STATUS_STUN = statusIndexById('stun');
+const STATUS_BURN = statusIndexById('burn');
+const STATUS_SOAKED = statusIndexById('soaked');
+const STATUS_CHILL = statusIndexById('chill');
 
 /*
  *  ARCHITEKTURA (fundament pod co-op 1-8 graczy):
@@ -1211,8 +1214,14 @@ export class World {
     }
     // CURL: nadwyżka HP nad bazę klasy wchodzi w obrażenia — tank bije tym
     // mocniej, im jest twardszy. Ten sam wzorzec co SONIC, tylko oś to życie.
-    if (p.hpToDamage > 0) {
-      dmg *= 1 + Math.max(0, p.maxHpBonus / p.cls.maxHp) * p.hpToDamage;
+    let h2d = p.hpToDamage;
+    // UNBREAKABLE SHELL (legendarka hog-curl): HP przelewa się w obrażenia mocniej.
+    if (p.uniqueEffects.has('unbreakable-shell')) h2d *= 1.5;
+    // TITANHEART (legendarka bear-hib): tank-niedźwiedź zamienia nadwyżkę HP w
+    // obrażenia nawet BEZ osi CURL — obrona staje się ofensywą (30% konwersji).
+    if (p.uniqueEffects.has('titanheart')) h2d += 0.3;
+    if (h2d > 0) {
+      dmg *= 1 + Math.max(0, p.maxHpBonus / p.cls.maxHp) * h2d;
     }
     // RAMPAGE: BRAKUJĄCE życie wchodzi w obrażenia — odwrotność CURL-a. Im niżej
     // pasek, tym mocniejszy cios (berserker na krawędzi). Wyleczenie się zdejmuje
@@ -1752,6 +1761,11 @@ export class World {
       if (m.hp <= 0) {
         this.killMob(m, p);
         return;
+      }
+      // WINDSTEP BOOTS (legendarka hare-slip): lądowanie MROZI ocalałych —
+      // skoczek wpada w hordę i zostawia frostfield pod nogami.
+      if (STATUS_CHILL >= 0 && p.uniqueEffects.has('windstep-boots')) {
+        this.applyStatus(m, STATUS_CHILL, p.index);
       }
       if (m.bossIndex >= 0) return;
       const d = Math.sqrt(d2) || 1;
@@ -2597,6 +2611,11 @@ export class World {
       p.hp = Math.min(this.maxHpOf(p), p.hp + p.onHitLifesteal);
     }
     if (p.onHitStatus >= 0 && m.hp > 0) this.applyStatus(m, p.onHitStatus, p.index);
+    // FANGS OF SCURRY (legendarka rat-scurry): DRUGI stack VENOM z każdego ciosu —
+    // przy wysokim attack-speedzie topi cel w jadzie dwa razy szybciej.
+    if (m.hp > 0 && p.onHitStatus >= 0 && p.uniqueEffects.has('fangs-of-scurry')) {
+      this.applyStatus(m, p.onHitStatus, p.index);
+    }
     // NEUTRON CORE (legendarka bear-gravity): auto-atak nakłada GRAVITY DRAG.
     if (m.hp > 0 && STATUS_GRAVITY_DRAG >= 0 && p.uniqueEffects.has('neutron-core')) {
       this.applyStatus(m, STATUS_GRAVITY_DRAG, p.index);
@@ -2645,6 +2664,31 @@ export class World {
       target.statuses.some((st) => st.defIndex === STATUS_GRAVITY_DRAG)
     ) {
       dmg *= 1.3;
+    }
+    // MIRROR'S EDGE (legendarka ott-mirror): cel SOAKED obrywa +25% od Ciebie —
+    // asasyn-klony żerują na zmoczonych (MIRROR LANCE nakłada soaked, klony dobijają).
+    if (
+      target && STATUS_SOAKED >= 0 && p.uniqueEffects.has('mirrors-edge') &&
+      target.statuses.some((st) => st.defIndex === STATUS_SOAKED)
+    ) {
+      dmg *= 1.25;
+    }
+    // CINDERHEART (legendarka mole-magma): płonący cel obrywa +30% od Ciebie —
+    // combo z własnym ogniem (wszystko podpalasz Q/lawą, potem miażdżysz).
+    if (
+      target && STATUS_BURN >= 0 && p.uniqueEffects.has('cinderheart') &&
+      target.statuses.some((st) => st.defIndex === STATUS_BURN)
+    ) {
+      dmg *= 1.3;
+    }
+    // LAUGHING FANG (legendarka hy-cackle): wróg poniżej 25% HP jest DOBIJANY
+    // natychmiast. Bossy odporne (bossIndex >= 0) — inaczej egzekucja
+    // trywializowałaby fazy. Zwracamy dokładnie jego HP = pewny zgon tym ciosem.
+    if (
+      target && target.bossIndex < 0 && target.maxHp > 0 &&
+      target.hp <= target.maxHp * 0.25 && p.uniqueEffects.has('laughing-fang')
+    ) {
+      return target.hp;
     }
     // Szansa bazowa (romby) + gear, clamp na SUMIE do `critChanceMax`. RNG rusza
     // dopiero po sprawdzeniu `crit > 0` — bez gearu to bit-w-bit stare zachowanie.
@@ -2728,7 +2772,12 @@ export class World {
 
     // Stop czasu: jedna liczba w świecie, resztą zajmuje się `step`.
     if (skill.kind === 'timestop') {
-      this.timeStopTicks = Math.max(this.timeStopTicks, skill.durationTicks);
+      // HOURGLASS OF THE VOID (legendarka fox-chrono): TIME STOP trwa +50% —
+      // szersze okno na burst w zamrożonej arenie.
+      const dur = p.uniqueEffects.has('hourglass-of-the-void')
+        ? Math.round(skill.durationTicks * 1.5)
+        : skill.durationTicks;
+      this.timeStopTicks = Math.max(this.timeStopTicks, dur);
       return;
     }
 
@@ -2835,6 +2884,19 @@ export class World {
     // RAILGUN BARREL (legendarka mole-sniper): SNIPER SHOT ogłusza trafionych.
     if (skill.id === 'sniper-shot' && STATUS_STUN >= 0 && p.uniqueEffects.has('railgun-barrel')) {
       statusIndex = STATUS_STUN;
+    }
+    // GAUNTLET OF DOMINATION (legendarka gor-iron): GROUND SLAM ogłusza — peel dla
+    // drużyny i pewne okno na TITAN SMASH prosto w unieruchomioną hordę.
+    if (skill.id === 'gor-slam' && STATUS_STUN >= 0 && p.uniqueEffects.has('gauntlet-of-domination')) {
+      statusIndex = STATUS_STUN;
+    }
+    // BOUNCING CURRENT (legendarka otter-playful): klaps/riptide MOCZY odrzuconych —
+    // SOAKED zmiękcza ich pod kolejne zderzenia pinballa. `< 0` nie kasuje stuna RIPTIDE.
+    if (
+      statusIndex < 0 && STATUS_SOAKED >= 0 && p.uniqueEffects.has('bouncing-current') &&
+      (skill.id === 'otter-tailslap' || skill.id === 'otter-riptide')
+    ) {
+      statusIndex = STATUS_SOAKED;
     }
     // FLING (wydra PLAYFUL): bonus przy zderzeniu = obrażenia zwarcia × `fling`.
     const flingBonus = skill.fling ? this.skillDamageOf(p, skill.fling) : 0;
@@ -3244,6 +3306,10 @@ export class World {
   ): void {
     const count = Math.max(1, skill.count + p.projectileCountBonus);
     const chains = Math.max(0, skill.chains + p.chainCountBonus);
+    // QUIVER OF INFINITY (fox-arcane) / ECHO LENS (bat-sonar): pociski sięgają
+    // dalej między odbiciami — szersza sieć łańcucha z jednego strzału.
+    const chainRangeMult =
+      p.uniqueEffects.has('quiver-of-infinity') || p.uniqueEffects.has('echo-lens') ? 1.5 : 1;
     // Jeden rzut na kryta dla CAŁEJ salwy, nie osobno na każdą strzałę:
     // czytelniej (cała salwa błyska razem) i zużycie RNG nie zależy od tego,
     // ile strzał dokleiły talenty.
@@ -3258,7 +3324,7 @@ export class World {
         damage, true,
         {
           chains,
-          chainRange: skill.chainRange,
+          chainRange: skill.chainRange * chainRangeMult,
           chainFalloff: skill.chainFalloff,
           blastRadius: skill.blastRadius,
           ownerIndex: p.index,
@@ -3324,7 +3390,10 @@ export class World {
 
     // `summonCountBonus` (talent R NIGHT TERROR) dokłada sztuk na rzut. Zero
     // dla wszystkich innych klas, więc niczyjego summona nie rusza.
-    const count = skill.count + p.summonCountBonus;
+    // SWARMLORD SCEPTER (legendarka rat-swarm): +50% szczurów — więcej roznosicieli
+    // zarazy = grubsze stacki pod RUPTURE.
+    const swarmBonus = p.uniqueEffects.has('swarmlord-scepter') ? Math.ceil(skill.count * 0.5) : 0;
+    const count = skill.count + p.summonCountBonus + swarmBonus;
     for (let i = 0; i < count; i++) {
       // Kilka sztuk naraz rozstawiamy w wachlarzu, żeby nie stały w sobie.
       const spread = count > 1 ? (i - (count - 1) / 2) * def.radius * 2.4 : 0;
@@ -3576,7 +3645,9 @@ export class World {
       // gracza poszerza promień sączenia.
       const radius = pay.targetRadius * p.rangeMult;
       const r2 = radius * radius;
-      const maxTargets = 1 + p.drainExtraTargets;
+      // CROWN OF DREAD (legendarka bat-terror): DRAIN sączy z +2 dodatkowych celów.
+      const maxTargets =
+        1 + p.drainExtraTargets + (p.uniqueEffects.has('crown-of-dread') ? 2 : 0);
       let hit = 0;
       let healed = 0;
       let picked = -1;
@@ -3955,8 +4026,14 @@ export class World {
         // AURA MASTER: aura slotu jest aktywna, DOPÓKI slot gotowy (cd<=0). Po
         // wciśnięciu skill idzie na cooldown → jego pasywna aura gaśnie.
         const slotIdx = owner.slotAuras.indexOf(aura.id);
-        const slotReady = slotIdx >= 0 && owner.skillCooldowns[slotIdx] <= 0;
-        if (!timed && !slotReady && !owner.auraIds.includes(aura.id)) continue;
+        // CONDUCTOR'S BATON (legendarka hare-aura): aura slotu wisi także w czasie
+        // cooldownu skilla — dyrygent trzyma wszystkie 4 aury naraz.
+        const slotReady = slotIdx >= 0 &&
+          (owner.skillCooldowns[slotIdx] <= 0 || owner.uniqueEffects.has('conductors-baton'));
+        // EVERTIDE SHELL (legendarka ott-tide): TIDE GUARD roztaczana na stałe,
+        // nawet bez zwieńczenia gałęzi (pancerz + leczenie + SOAKED dookoła).
+        const forcedAura = aura.id === 'tideguard' && owner.uniqueEffects.has('evertide-shell');
+        if (!timed && !slotReady && !forcedAura && !owner.auraIds.includes(aura.id)) continue;
 
         // Promień aur AURA MASTERA (slotowych) rośnie z `rangeMult` gracza
         // (drzewko `range`) — stąd RADIANCE na maksie sięga przez cały ekran.
@@ -4158,9 +4235,19 @@ export class World {
     // sposób, w jaki build przywoływacza rośnie w trakcie runu.
     // `fixedCount` = liczba sztuk jest ZASADĄ, nie siłą (portale muszą być
     // dokładnie dwa), więc talenty na `minionCount` jej nie ruszają.
+    // LEGENDARKI minionowe: dokładają sztuk do sufitu (poza `fixedCount`, np.
+    // portalami — ich liczba jest zasadą, nie siłą). Każda gated pod swój spec,
+    // więc gracz nosi najwyżej jedną.
+    let uniqMinionBonus = 0;
+    if (owner) {
+      if (owner.uniqueEffects.has('warg-totem')) uniqMinionBonus += 2;         // ALPHA PACK — wilki
+      if (owner.uniqueEffects.has('bond-of-the-pack')) uniqMinionBonus += 1;   // SUMMONER — przyzwania
+      if (owner.uniqueEffects.has('overclocked-totems')) uniqMinionBonus += 1; // ENGINEER — totemy
+      if (owner.uniqueEffects.has('bonelords-sigil')) uniqMinionBonus += 1;    // NECROMANCER — nieumarli
+    }
     const maxActive = def.fixedCount
       ? def.maxActive
-      : def.maxActive + (owner?.minionCountBonus ?? 0);
+      : def.maxActive + (owner?.minionCountBonus ?? 0) + uniqMinionBonus;
     if (this.countMinions(MINIONS.indexOf(def), ownerIndex) >= maxActive) {
       let oldest: Minion | null = null;
       for (const mi of this.minions) {
@@ -4521,6 +4608,10 @@ export class World {
       case 'bolt': {
         if (!target) break;
         const d = this.distTo(mi, target) || 1;
+        // OVERCHARGE CAPACITOR (legendarka hog-bastion): bolt SENTRY odbija +3
+        // niezależnie od zwieńczenia gałęzi — jeden turret czyści hordę.
+        const capChains = scaleOwner?.uniqueEffects.has('overcharge-capacitor') ? 3 : 0;
+        const boltChains = (attack.chains ?? 0) + (scaleOwner ? scaleOwner.turretBoltChains : 0) + capChains;
         this.spawnProjectile(
           mi.x, mi.y,
           ((target.x - mi.x) / d) * attack.projectileSpeed,
@@ -4532,8 +4623,9 @@ export class World {
             // zachowują się dokładnie jak przedtem. Turret gracza (`scalesWithOwner`)
             // dokłada odbicia z jego zwieńczenia (`OVERCHARGE`), z sensownymi
             // domyślnymi zasięgiem/wytraceniem, gdy dane bolta ich nie mają.
-            chains: (attack.chains ?? 0) + (scaleOwner ? scaleOwner.turretBoltChains : 0),
-            chainRange: attack.chainRange ?? (scaleOwner?.turretBoltChains ? 240 : 0),
+            chains: boltChains,
+            chainRange: attack.chainRange ??
+              (scaleOwner && (scaleOwner.turretBoltChains > 0 || capChains > 0) ? 240 : 0),
             chainFalloff: attack.chainFalloff ?? 0.8,
             ownerIndex: mi.ownerIndex,
             visual: attack.visual ?? '',
@@ -4566,6 +4658,11 @@ export class World {
           const d2 = dx * dx + dy * dy;
           if (d2 > reach * reach) return;
           if (statusIndex >= 0) this.applyStatus(m, statusIndex, mi.ownerIndex);
+          // DEMOLITION CHARGE (legendarka mole-sapper): miny i wybuchy podpalają
+          // trafionych (BURN) — DoT dokleja się do burstu deployables.
+          if (STATUS_BURN >= 0 && owner?.uniqueEffects.has('demolition-charge')) {
+            this.applyStatus(m, STATUS_BURN, mi.ownerIndex);
+          }
           // Pole BEZ obrażeń nie ma migotać przy każdym tyknięciu — inaczej
           // samo spowolnienie wyglądałoby jak ciągłe bicie.
           if (attack.damage > 0) {
@@ -4718,9 +4815,12 @@ export class World {
     // WEREWOLF: zabójstwo w formie dolewa jej czasu (do sufitu). Dotyczy KAŻDEGO
     // zabójstwa — także bossa — więc łańcuch rzezi trzyma wilkołaka w transie.
     if (killer.transformTicks > 0 && killer.transformKillExtend > 0) {
-      killer.transformTicks = Math.min(
-        killer.transformMaxTicks, killer.transformTicks + killer.transformKillExtend,
-      );
+      // MOONPELT (legendarka wolf-howl): każde zabójstwo przedłuża formę 2× dłużej —
+      // łańcuch rzezi utrzymuje wilkołaka w transie niemal na stałe (do sufitu).
+      const ext = killer.uniqueEffects.has('moonpelt')
+        ? killer.transformKillExtend * 2
+        : killer.transformKillExtend;
+      killer.transformTicks = Math.min(killer.transformMaxTicks, killer.transformTicks + ext);
     }
     // PACK INSTINCT rośnie WYŁĄCZNIE za zabójstwa w grupie — samotne
     // polowanie nie buduje watahy. `allyCount` jest z tego ticku (stepPack).

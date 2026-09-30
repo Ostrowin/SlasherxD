@@ -17,6 +17,7 @@ import { CURRENCY_NAME, computeReward } from '../sim/metaConfig';
 import { loadSave, metaBonusesFrom, writeSave } from '../meta/save';
 import { makeGlowCircle, makeGlowPolygon, makeNeonGrid, makeStarfield, makeVignette } from './textures';
 import { FogOfWar } from './fog';
+import { HeroRig, hasHeroArt, preloadHeroArt } from './heroArt';
 import { Minimap } from './Minimap';
 import { Hud } from './Hud';
 import { DamageNumbers } from './DamageNumbers';
@@ -78,6 +79,8 @@ export class GameScene extends Phaser.Scene {
 
   /** Sprite'y wszystkich graczy; lokalny to `playerSprites[localIndex]`. */
   private playerSprites: Phaser.GameObjects.Image[] = [];
+  /** Postać z atlasu (warstwy + neon) albo null = stary świecący pięciokąt. */
+  private playerRigs: (HeroRig | null)[] = [];
   /** Paski HP i etykiety nad kolegami z drużyny (lokalny gracz ich nie ma). */
   private teamBars!: Phaser.GameObjects.Graphics;
   /** Okręgi pokazujące, jak daleko sięgają pola obszarowe (`slam`). */
@@ -227,6 +230,10 @@ export class GameScene extends Phaser.Scene {
     this.coop = data.coop ?? null;
   }
 
+  preload(): void {
+    preloadHeroArt(this);
+  }
+
   create(): void {
     // Seed spoza symulacji — w co-opie (1-8 graczy) seed rozda host.
     // Bonusy meta wchodzą jako jawne dane wejściowe (patrz komentarz przy MetaBonus).
@@ -337,8 +344,13 @@ export class GameScene extends Phaser.Scene {
     this.input.mouse?.disableContextMenu();
 
     // Sprite na każdego gracza — koledzy z drużyny są widoczni w świecie.
-    this.playerSprites = this.world.players.map((p) =>
-      this.add.image(p.x, p.y, 'player').setTint(p.cls.color).setDepth(3),
+    this.playerRigs = this.world.players.map((p) =>
+      hasHeroArt(this, p.cls.id) ? new HeroRig(this, p.cls.id, p.cls.color) : null,
+    );
+    this.playerSprites = this.world.players.map(
+      (p, i) =>
+        this.playerRigs[i]?.base.setPosition(p.x, p.y) ??
+        this.add.image(p.x, p.y, 'player').setTint(p.cls.color).setDepth(3),
     );
     this.teamBars = this.add.graphics().setDepth(7);
     // Głębokość 2: POD jednostkami i wrogami, żeby okrąg pola był tłem,
@@ -904,7 +916,7 @@ export class GameScene extends Phaser.Scene {
       if (i === this.localIndex || p.dead) return;
       const s = this.playerSprites[i];
       const x = s.x - barW / 2;
-      const y = s.y - 30;
+      const y = s.y - (this.playerRigs[i]?.topOffset ?? 22) - 8;
       const frac = Math.max(0, Math.min(1, p.hp / this.world.maxHpOf(p)));
       this.teamBars
         .fillStyle(0x000000, 0.6)
@@ -1524,13 +1536,17 @@ export class GameScene extends Phaser.Scene {
     // Wszyscy gracze: pozycje z interpolacją, martwi przygaszeni.
     this.world.players.forEach((p, i) => {
       const s = this.playerSprites[i];
-      s.setPosition(Phaser.Math.Linear(p.prevX, p.x, alpha), Phaser.Math.Linear(p.prevY, p.y, alpha));
-      s.setAlpha(p.dead ? 0.25 : 1);
+      const x = Phaser.Math.Linear(p.prevX, p.x, alpha);
+      const y = Phaser.Math.Linear(p.prevY, p.y, alpha);
       // Skok: postać „urasta", bo jest nad areną i nietykalna — to musi być
       // widać na pierwszy rzut oka, inaczej gracz nie wie, kiedy jest bezpieczny.
-      if (w.isAirborne(p)) s.setScale(1.35);
-      else if (p.dashTicksLeft > 0) s.setScale(1.12);
-      else s.setScale(1);
+      const scale = w.isAirborne(p) ? 1.35 : p.dashTicksLeft > 0 ? 1.12 : 1;
+      const rig = this.playerRigs[i];
+      if (rig) {
+        rig.update(p, x, y, w.tick + alpha, scale);
+        return;
+      }
+      s.setPosition(x, y).setAlpha(p.dead ? 0.25 : 1).setScale(scale);
     });
     this.drawTeamBars();
     this.drawBossBar();

@@ -1,0 +1,95 @@
+{
+ "frames": {
+  "hero_bear_gravity": {
+   "frame": {
+    "x": 4,
+    "y": 4,
+    "w": 126,
+    "h": 122
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 126,
+    "h": 122
+   },
+   "sourceSize": {
+    "w": 126,
+    "h": 122
+   },
+   "anchor": {
+    "x": 0.49206349206349204,
+    "y": 0.9836065573770492
+   },
+   "glow": [
+    [
+     -46,
+     -84,
+     7
+    ],
+    [
+     48,
+     -74,
+     9
+    ],
+    [
+     26,
+     -94,
+     6
+    ]
+   ]
+  },
+  "hero_bear_gravity#team": {
+   "frame": {
+    "x": 138,
+    "y": 4,
+    "w": 126,
+    "h": 122
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 126,
+    "h": 122
+   },
+   "sourceSize": {
+    "w": 126,
+    "h": 122
+   },
+   "anchor": {
+    "x": 0.49206349206349204,
+    "y": 0.9836065573770492
+   },
+   "glow": [
+    [
+     -46,
+     -84,
+     7
+    ],
+    [
+     48,
+     -74,
+     9
+    ],
+    [
+     26,
+     -94,
+     6
+    ]
+   ]
+  }
+ },
+ "meta": {
+  "app": "tools/bakeArt.ts",
+  "image": "atlas.png",
+  "size": {
+   "w": 1024,
+   "h": 256
+  },
+  "scale": 1
+ }
+}
