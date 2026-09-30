@@ -1,0 +1,51 @@
+<svg data-glow="98 38 5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" data-anchor="64 64" data-world="0.21" data-grime="1.0">
+  <!-- Stacja: stos skrzyń cargo z oznaczeniami i lampką. -->
+  <ellipse cx="70" cy="74" rx="56" ry="39" fill="#000" opacity="0.35"/>
+  <g transform="rotate(-8 39.0 45.0)">
+  <g stroke="#1a120c" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round">
+    <rect x="14" y="28" width="50" height="46" rx="3" fill="#34342a"/>
+    <rect x="14" y="22" width="50" height="46" rx="3" fill="#4a4a38"/>
+  </g>
+    <path d="M19 27 L59 63 M59 27 L19 63" stroke="#34342a" stroke-width="3"/>
+    <rect x="18" y="26" width="42" height="38" rx="2" fill="none" stroke="#62624c" stroke-width="1.5"/>
+    <path d="M17 24 L61 24" stroke="#62624c" stroke-width="1.5"/>
+  <path d="M38.8 48.0 L35.7 46.7" stroke="#1f2226" stroke-width="1.1" stroke-linecap="round" opacity="0.6"/>
+  <path d="M38.8 47.2 L35.7 45.9" stroke="#a3acb6" stroke-width="0.9" stroke-linecap="round"/>
+  <path d="M47.1 45.3 L43.8 45.8" stroke="#1f2226" stroke-width="1.1" stroke-linecap="round" opacity="0.6"/>
+  <path d="M47.1 44.5 L43.8 45.0" stroke="#a3acb6" stroke-width="0.9" stroke-linecap="round"/>
+  <path d="M25.0 50.8 L29.1 52.9" stroke="#1f2226" stroke-width="1.1" stroke-linecap="round" opacity="0.6"/>
+  <path d="M25.0 50.0 L29.1 52.1" stroke="#a3acb6" stroke-width="0.9" stroke-linecap="round"/>
+  </g>
+  <g transform="rotate(6 87.0 53.0)">
+  <g stroke="#1a120c" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round">
+    <rect x="62" y="36" width="50" height="46" rx="3" fill="#34342a"/>
+    <rect x="62" y="30" width="50" height="46" rx="3" fill="#4a4a38"/>
+  </g>
+    <path d="M67 35 L107 71 M107 35 L67 71" stroke="#34342a" stroke-width="3"/>
+    <rect x="66" y="34" width="42" height="38" rx="2" fill="none" stroke="#62624c" stroke-width="1.5"/>
+    <path d="M65 32 L109 32" stroke="#62624c" stroke-width="1.5"/>
+  <path d="M105.0 41.4 L101.7 39.3" stroke="#1f2226" stroke-width="1.1" stroke-linecap="round" opacity="0.6"/>
+  <path d="M105.0 40.6 L101.7 38.5" stroke="#a3acb6" stroke-width="0.9" stroke-linecap="round"/>
+  <path d="M103.7 48.3 L97.9 48.3" stroke="#1f2226" stroke-width="1.1" stroke-linecap="round" opacity="0.6"/>
+  <path d="M103.7 47.5 L97.9 47.5" stroke="#a3acb6" stroke-width="0.9" stroke-linecap="round"/>
+  <path d="M107.4 41.3 L103.7 43.1" stroke="#1f2226" stroke-width="1.1" stroke-linecap="round" opacity="0.6"/>
+  <path d="M107.4 40.5 L103.7 42.3" stroke="#a3acb6" stroke-width="0.9" stroke-linecap="round"/>
+  </g>
+  <g transform="rotate(-2 58.0 86.0)">
+  <g stroke="#1a120c" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round">
+    <rect x="30" y="70" width="56" height="44" rx="3" fill="#34342a"/>
+    <rect x="30" y="64" width="56" height="44" rx="3" fill="#4a4a38"/>
+  </g>
+    <path d="M35 69 L81 103 M81 69 L35 103" stroke="#34342a" stroke-width="3"/>
+    <rect x="34" y="68" width="48" height="36" rx="2" fill="none" stroke="#62624c" stroke-width="1.5"/>
+    <path d="M33 66 L83 66" stroke="#62624c" stroke-width="1.5"/>
+  <path d="M55.4 79.4 L53.3 78.3" stroke="#1f2226" stroke-width="1.1" stroke-linecap="round" opacity="0.6"/>
+  <path d="M55.4 78.6 L53.3 77.5" stroke="#a3acb6" stroke-width="0.9" stroke-linecap="round"/>
+  <path d="M70.0 71.5 L65.8 73.1" stroke="#1f2226" stroke-width="1.1" stroke-linecap="round" opacity="0.6"/>
+  <path d="M70.0 70.7 L65.8 72.3" stroke="#a3acb6" stroke-width="0.9" stroke-linecap="round"/>
+  <path d="M74.4 90.8 L79.6 89.0" stroke="#1f2226" stroke-width="1.1" stroke-linecap="round" opacity="0.6"/>
+  <path d="M74.4 90.0 L79.6 88.2" stroke="#a3acb6" stroke-width="0.9" stroke-linecap="round"/>
+  </g>
+  <rect x="44" y="80" width="20" height="5" fill="#c9a032" stroke="#1a120c" stroke-width="1"/>
+  <circle cx="98" cy="38" r="3.5" fill="#3d8bff" stroke="#1a120c" stroke-width="1.5"/>
+</svg>

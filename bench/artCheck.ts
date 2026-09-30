@@ -3,9 +3,11 @@ import { join } from 'path';
 import {
   ATLASES,
   HEROES,
+  MAP_ART,
   PLAYER_COLOR_MIN_LUMINANCE,
   PLAYER_COLORS,
   SPRITES,
+  SUMMONS,
 } from '../src/render/artManifest';
 import { DEV_MARKER } from '../src/render/devMarker';
 
@@ -78,9 +80,25 @@ for (const [name, def] of Object.entries(SPRITES)) {
   check(`${name}: punkty neonu w klatce`, outside.length === 0, JSON.stringify(outside));
 }
 
-// --- manifest postaci wskazuje istniejące sprite'y
+// --- manifest postaci i przywołańców wskazuje istniejące sprite'y
 for (const frame of heroFrames) {
   check(`HEROES → ${frame} w SPRITES`, !!SPRITES[frame]);
+}
+for (const [id, frame] of Object.entries(SUMMONS)) {
+  check(`SUMMONS ${id} → ${frame} w SPRITES`, !!SPRITES[frame]);
+  check(`SUMMONS ${id}: bez obwódki (D4)`, !SPRITES[frame]?.rim);
+}
+// każda gałąź niedźwiedzia ma grafikę (Etap 1)
+check('bear: szeregowy + 3 specjalizacje', !!HEROES.bear?.soldier && HEROES.bear.specs.length === 3 && HEROES.bear.specs.every((f) => f !== null));
+
+// --- areny (Etap 2): kafel wypalony, przeszkody w atlasie `world`, bez obwódki
+for (const [mapId, art] of Object.entries(MAP_ART)) {
+  check(`mapa ${mapId}: kafel public/art/tiles/${art.tile}.png`, existsSync(join('public', 'art', 'tiles', `${art.tile}.png`)));
+  check(`mapa ${mapId}: ma przeszkody`, art.obstacles.length > 0);
+  for (const frame of art.obstacles) {
+    check(`mapa ${mapId}: ${frame} w atlasie world`, SPRITES[frame]?.atlas === 'world' && !!atlases.world?.frames[frame]);
+    check(`mapa ${mapId}: ${frame} bez obwódki (D4)`, SPRITES[frame]?.rim === false);
+  }
 }
 
 // --- paleta slotów graczy (D3): 8 kolorów, każdy jasny na tle gry

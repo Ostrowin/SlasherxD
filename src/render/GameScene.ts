@@ -17,9 +17,10 @@ import { CURRENCY_NAME, computeReward } from '../sim/metaConfig';
 import { loadSave, metaBonusesFrom, writeSave } from '../meta/save';
 import { makeGlowCircle, makeGlowPolygon, makeNeonGrid, makeStarfield, makeVignette } from './textures';
 import { FogOfWar } from './fog';
-import { HeroRig, hasHeroArt, preloadHeroArt } from './heroArt';
+import { ATLAS_KEY as ATLAS_KEY_HEROES, HeroRig, SUMMON_DISPLAY_SCALE, hasHeroArt, preloadHeroArt, summonFrameFor } from './heroArt';
 import { PLAYER_COLORS } from './artManifest';
-import { applyDevStart, startFpsProbe, type DevStart } from './devStart';
+import { buildArenaFloor, buildObstacles, hasWorldArt, preloadWorldArt } from './worldArt';
+import { applyDevStart, keepAlive, startFpsProbe, type DevStart } from './devStart';
 import { Minimap } from './Minimap';
 import { Hud } from './Hud';
 import { DamageNumbers } from './DamageNumbers';
@@ -83,6 +84,13 @@ export class GameScene extends Phaser.Scene {
   private playerSprites: Phaser.GameObjects.Image[] = [];
   /** Postać z atlasu (warstwy + neon) albo null = stary świecący pięciokąt. */
   private playerRigs: (HeroRig | null)[] = [];
+  /** Ostatnio narysowana specjalizacja każdego gracza — zmiana = przemiana postaci (plan, Etap 1). */
+  private lastSeenSpec: number[] = [];
+  /**
+   * Pierwsza zmiana specjalizacji bez efektu: szybki start (DEV) wybiera ją inputem w pierwszym ticku,
+   * a przemiana ma grać tylko przy prawdziwym wyborze w trakcie walki.
+   */
+  private skipFirstMorph = false;
   /** Paski HP i etykiety nad kolegami z drużyny (lokalny gracz ich nie ma). */
   private teamBars!: Phaser.GameObjects.Graphics;
   /** Okręgi pokazujące, jak daleko sięgają pola obszarowe (`slam`). */
@@ -228,6 +236,11 @@ export class GameScene extends Phaser.Scene {
   /** Szybki start do testów grafiki (`?dev=1`, tylko `npm run dev` — patrz `devStart.ts`). */
   private dev: DevStart | null = null;
 
+  /** Mapa, której grafikę rysujemy. Co-op gra na domyślnej (symulacja też — patrz `create`). */
+  private get arenaMapId(): string {
+    return this.coop ? DEFAULT_MAP_ID : this.mapId;
+  }
+
   init(data: { classId?: string; mapId?: string; coop?: CoopInit; dev?: DevStart }): void {
     this.cls = classById(data.classId ?? DEFAULT_CLASS_ID) ?? CLASSES[0];
     this.mapId = data.mapId ?? DEFAULT_MAP_ID;
@@ -237,6 +250,7 @@ export class GameScene extends Phaser.Scene {
 
   preload(): void {
     preloadHeroArt(this);
+    preloadWorldArt(this);
   }
 
   create(): void {
@@ -291,7 +305,7 @@ export class GameScene extends Phaser.Scene {
     if (import.meta.env.DEV && this.dev && !this.coop) {
       // Fala i poziom przed pierwszym tickiem; specjalizacja idzie zwykłym inputem `talentPick`.
       this.pendingTalentPick = applyDevStart(this.world, this.dev);
-      startFpsProbe(this, this.dev);
+      startFpsProbe(this, this.dev, () => this.world.mobs.filter((m) => m.alive).length);
     }
     this.pendingSkillCast = -1;
     this.pendingDash = false;
@@ -325,8 +339,9 @@ export class GameScene extends Phaser.Scene {
     this.buildBackground();
 
     // Przeszkody terenu (statyczne, z symulacji — ta sama mapa co logika kolizji).
-    // Neonowy pierścień + ciemny rdzeń: czytelna bryła, która nie zlewa się z tłem.
-    for (const o of this.world.obstacles) {
+    // Arena z grafiką (Etap 2): sprite'y z atlasu `world`. Bez niej: neonowy pierścień + ciemny rdzeń.
+    if (hasWorldArt(this, this.arenaMapId)) buildObstacles(this, this.arenaMapId, this.world.obstacles);
+    else for (const o of this.world.obstacles) {
       this.add.circle(o.x, o.y, o.r + 6, 0x1b3a8a, 0.12).setDepth(0);
       this.add
         .circle(o.x, o.y, o.r, 0x070b14)
@@ -358,13 +373,17 @@ export class GameScene extends Phaser.Scene {
     // Sprite na każdego gracza — koledzy z drużyny są widoczni w świecie.
     this.playerRigs = this.world.players.map((p, i) =>
       // Obwódka i pas drużyny w kolorze SLOTU gracza (D3): dwóch niedźwiedzi w co-opie się rozróżnia.
-      hasHeroArt(this, p.cls.id) ? new HeroRig(this, p.cls.id, PLAYER_COLORS[i % PLAYER_COLORS.length]) : null,
+      hasHeroArt(this, p.cls.id)
+        ? new HeroRig(this, p.cls.id, PLAYER_COLORS[i % PLAYER_COLORS.length], p.specIndex)
+        : null,
     );
     this.playerSprites = this.world.players.map(
       (p, i) =>
         this.playerRigs[i]?.base.setPosition(p.x, p.y) ??
         this.add.image(p.x, p.y, 'player').setTint(p.cls.color).setDepth(3),
     );
+    this.lastSeenSpec = this.world.players.map((p) => p.specIndex);
+    this.skipFirstMorph = import.meta.env.DEV && !!this.dev && this.dev.spec >= 0;
     this.teamBars = this.add.graphics().setDepth(7);
     // Głębokość 2: POD jednostkami i wrogami, żeby okrąg pola był tłem,
     // a nie przykrywał tego, co się w nim dzieje.
@@ -620,11 +639,15 @@ export class GameScene extends Phaser.Scene {
       .setScrollFactor(0)
       .setDepth(-2);
 
-    this.add
-      .tileSprite(0, 0, C.WORLD_W, C.WORLD_H, 'grid')
-      .setOrigin(0, 0)
-      .setAlpha(0.5)
-      .setDepth(-1);
+    // Arena z grafiką: podłoga z kafla + krawędź (Etap 2). Bez niej: neonowa siatka stacji na gwiazdach.
+    if (hasWorldArt(this, this.arenaMapId)) buildArenaFloor(this, this.arenaMapId, C.WORLD_W, C.WORLD_H);
+    else {
+      this.add
+        .tileSprite(0, 0, C.WORLD_W, C.WORLD_H, 'grid')
+        .setOrigin(0, 0)
+        .setAlpha(0.5)
+        .setDepth(-1);
+    }
 
     // Warstwy gwiazd są przypięte do kamery, więc muszą nadążać za zmianą okna.
     this.scale.on('resize', this.resizeBackground, this);
@@ -1330,6 +1353,8 @@ export class GameScene extends Phaser.Scene {
       this.accumulator += Math.min(deltaMs, 250) / 1000;
       let firstTick = true;
       while (this.accumulator >= C.TICK_DT) {
+        // Szybki start (DEV): postać nie ginie — pomiar FPS i oglądanie grafiki potrzebują czasu w hordzie.
+        if (import.meta.env.DEV && this.dev?.god) keepAlive(w);
         // Kliknięcia i wciśnięcia klawiszy liczą się TYLKO w pierwszym ticku
         // klatki — inaczej jedno kliknięcie kupiłoby dwa talenty.
         w.step([firstTick ? input : withoutOneShots(input)]);
@@ -1556,6 +1581,13 @@ export class GameScene extends Phaser.Scene {
       const scale = w.isAirborne(p) ? 1.35 : p.dashTicksLeft > 0 ? 1.12 : 1;
       const rig = this.playerRigs[i];
       if (rig) {
+        // Specjalizacja zmienia się w ticku symulacji — także u zdalnych graczy. Martwy albo ustawiony
+        // przez szybki start: sama podmiana, bez błysku.
+        if (p.specIndex !== this.lastSeenSpec[i]) {
+          rig.setSpec(p.specIndex, !p.dead && !this.skipFirstMorph);
+          this.lastSeenSpec[i] = p.specIndex;
+          this.skipFirstMorph = false;
+        }
         rig.update(p, x, y, w.tick + alpha, scale);
         return;
       }
@@ -1792,15 +1824,25 @@ export class GameScene extends Phaser.Scene {
         continue;
       }
       const def = MINIONS[mi.defIndex];
-      const key = minionTextureKey(def);
-      if (!s.visible || s.texture.key !== key) s.setTexture(key).setVisible(true);
-      s.setTint(def.color);
+      // Przywołaniec z atlasu (manifest SUMMONS): kolory są w rysunku, więc bez tintu; origin z pivota klatki.
+      // Slot poola bywa raz rysunkiem, raz wielokątem — origin i skalę ustawiamy jawnie w obu ścieżkach.
+      const art = summonFrameFor(this, def.id);
+      if (art) {
+        if (!s.visible || s.texture.key !== ATLAS_KEY_HEROES || s.frame.name !== art) {
+          s.setTexture(ATLAS_KEY_HEROES, art).setVisible(true);
+        }
+        s.clearTint();
+      } else {
+        const key = minionTextureKey(def);
+        if (!s.visible || s.texture.key !== key) s.setTexture(key).setOrigin(0.5).setVisible(true);
+        s.setTint(def.color);
+      }
       s.setPosition(
         Phaser.Math.Linear(mi.prevX, mi.x, alpha),
         Phaser.Math.Linear(mi.prevY, mi.y, alpha),
       );
       // Zamach jednostki „puchnie" — ten sam język wizualny co u wrogów.
-      s.setScale(mi.state === 'windup' ? 1.2 : 1);
+      s.setScale((mi.state === 'windup' ? 1.2 : 1) * (art ? SUMMON_DISPLAY_SCALE : 1));
       // Mina w trakcie uzbrajania jest PRZYGASZONA. Bez tego gracz nie wie,
       // czy pułapka, po której właśnie depcze wróg, zaraz wybuchnie, czy
       // dopiero się ładuje — a przy 3 s uzbrajania to różnica całej fali.

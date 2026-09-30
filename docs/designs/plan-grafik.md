@@ -848,7 +848,7 @@ Synthesized from this review's findings. Each task derives from a specific findi
   - Surfaced by: R4 (D5)
   - Files: `tools/svg_gen/grit.py`, `tools/svg_gen/ws_heroes.py`
   - Verify: `npm run bake-art -- --sheet` (kontur nienaruszony)
-- [ ] **T6 (P2, human: ~2h / CC: ~10min)** — render — `HeroRig.setFrameSet` + wykrywanie zmiany `specIndex` per gracz; przywołańce z atlasu bez `setTint(def.color)`
+- [x] **T6 (P2, human: ~2h / CC: ~10min)** — render — `HeroRig.setFrameSet` + wykrywanie zmiany `specIndex` per gracz; przywołańce z atlasu bez `setTint(def.color)`
   - Surfaced by: Etap 1 (R1-7 z przeglądu specyfikacji), korekta „przywołańce”
   - Files: `src/render/heroArt.ts`, `src/render/GameScene.ts`
   - Verify: szybki start ze `spec=-1`, awans → przemiana w podglądzie

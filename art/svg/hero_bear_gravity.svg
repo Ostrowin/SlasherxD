@@ -1,5 +1,13 @@
 <svg data-glow="18 52 7; 112 62 9; 90 42 6" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 144" width="128" height="144" data-anchor="64 136" data-world="0.21" data-grime="0.8">
   <!-- Grawitant (sci-fi): rękawice grawitacyjne z kulami osobliwości, płaszcz badacza, fioletowy wizjer. -->
+  <defs>
+    <mask id="chip_bear_gravity" maskUnits="userSpaceOnUse" x="0" y="0" width="128" height="144">
+      <rect x="0" y="0" width="128" height="144" fill="#fff"/>
+      <path d="M12.0 73.5 L14.2 71.4 L15.8 70.0 L13.7 68.6 L12.0 66.5 L10.1 70.0 Z" fill="#000"/>
+      <path d="M118.0 84.5 L116.3 86.9 L114.1 88.0 L116.1 89.5 L118.0 91.5 L119.9 88.0 Z" fill="#000"/>
+    </mask>
+  </defs>
+  <g mask="url(#chip_bear_gravity)">
   <g stroke="#1a120c" stroke-width="3" stroke-linejoin="round" stroke-linecap="round">
     <path d="M50 74 C40 70 30 66 22 64 L20 74 C30 76 40 80 46 86 Z" fill="#553519"/>
   </g>  <g stroke="#1a120c" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round">
@@ -46,4 +54,29 @@
   <path d="M48 54 C52 64 62 70 74 70 C64 66 56 60 52 50 Z" fill="#553519" opacity="0.7"/>
   <path d="M60 32 C66 29 76 28 84 30" fill="none" stroke="#9a6a40" stroke-width="2"/>
   <path d="M80 38 C88 34 98 36 100 42 C98 48 90 50 84 49 C80 48 78 44 80 38 Z" fill="#b070ff" stroke="#1a120c" stroke-width="2"/>
+  <path d="M59.9 39.5 L64.1 48.5" stroke="#7a3a30" stroke-width="3.4" stroke-linecap="round"/>
+  <path d="M59.9 39.5 L64.1 48.5" stroke="#c98a7a" stroke-width="2.0" stroke-linecap="round"/>
+  <path d="M62.9 40.8 L58.9 42.7" stroke="#2a1e14" stroke-width="1" stroke-linecap="round"/>
+  <path d="M64.0 43.1 L60.0 44.9" stroke="#2a1e14" stroke-width="1" stroke-linecap="round"/>
+  <path d="M65.1 45.3 L61.1 47.2" stroke="#2a1e14" stroke-width="1" stroke-linecap="round"/>
+  <g transform="rotate(8 83.0 106.0)">
+    <rect x="78" y="102" width="10" height="8" rx="1.5" fill="#3a3648" stroke="#1a120c" stroke-width="1.6"/>
+    <path d="M79.5 103.5 L86.5 103.5" stroke="#6e5c46" stroke-width="1"/>
+    <rect x="80" y="104" width="6" height="4" rx="1" fill="none" stroke="#2a1e14" stroke-width="0.9" stroke-dasharray="1.6 1.4"/>
+  </g>
+  <path d="M54.9 70.3 L52.3 69.9" stroke="#1f2226" stroke-width="1.1" stroke-linecap="round" opacity="0.6"/>
+  <path d="M54.9 69.5 L52.3 69.1" stroke="#a3acb6" stroke-width="0.9" stroke-linecap="round"/>
+  <path d="M81.3 71.3 L84.0 71.3" stroke="#1f2226" stroke-width="1.1" stroke-linecap="round" opacity="0.6"/>
+  <path d="M81.3 70.5 L84.0 70.5" stroke="#a3acb6" stroke-width="0.9" stroke-linecap="round"/>
+  <path d="M48.1 67.8 L43.8 67.3" stroke="#1f2226" stroke-width="1.1" stroke-linecap="round" opacity="0.6"/>
+  <path d="M48.1 67.0 L43.8 66.5" stroke="#a3acb6" stroke-width="0.9" stroke-linecap="round"/>
+  <path d="M57.8 66.7 L61.3 64.4" stroke="#1f2226" stroke-width="1.1" stroke-linecap="round" opacity="0.6"/>
+  <path d="M57.8 65.9 L61.3 63.6" stroke="#a3acb6" stroke-width="0.9" stroke-linecap="round"/>
+  <path d="M116.3 82.5 L118.3 81.2" stroke="#1f2226" stroke-width="1.1" stroke-linecap="round" opacity="0.6"/>
+  <path d="M116.3 81.7 L118.3 80.4" stroke="#a3acb6" stroke-width="0.9" stroke-linecap="round"/>
+  <path d="M102.9 88.6 L105.3 88.2" stroke="#1f2226" stroke-width="1.1" stroke-linecap="round" opacity="0.6"/>
+  <path d="M102.9 87.8 L105.3 87.4" stroke="#a3acb6" stroke-width="0.9" stroke-linecap="round"/>
+  <path d="M116.4 84.6 L119.7 85.0" stroke="#1f2226" stroke-width="1.1" stroke-linecap="round" opacity="0.6"/>
+  <path d="M116.4 83.8 L119.7 84.2" stroke="#a3acb6" stroke-width="0.9" stroke-linecap="round"/>
+  </g>
 </svg>

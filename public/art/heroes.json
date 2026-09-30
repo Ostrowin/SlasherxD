@@ -1,8 +1,299 @@
 {
  "frames": {
-  "hero_bear_gravity": {
+  "hero_bear_soldier": {
    "frame": {
     "x": 4,
+    "y": 4,
+    "w": 73,
+    "h": 104
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 73,
+    "h": 104
+   },
+   "sourceSize": {
+    "w": 73,
+    "h": 104
+   },
+   "anchor": {
+    "x": 0.3698630136986301,
+    "y": 0.9615384615384616
+   },
+   "glow": [
+    [
+     35.3,
+     -78,
+     3
+    ],
+    [
+     19.5,
+     -78.7,
+     3
+    ],
+    [
+     3,
+     -24,
+     3.8
+    ]
+   ]
+  },
+  "hero_bear_soldier#team": {
+   "frame": {
+    "x": 85,
+    "y": 4,
+    "w": 73,
+    "h": 104
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 73,
+    "h": 104
+   },
+   "sourceSize": {
+    "w": 73,
+    "h": 104
+   },
+   "anchor": {
+    "x": 0.3698630136986301,
+    "y": 0.9615384615384616
+   },
+   "glow": [
+    [
+     35.3,
+     -78,
+     3
+    ],
+    [
+     19.5,
+     -78.7,
+     3
+    ],
+    [
+     3,
+     -24,
+     3.8
+    ]
+   ]
+  },
+  "hero_bear_soldier#rim": {
+   "frame": {
+    "x": 166,
+    "y": 4,
+    "w": 73,
+    "h": 104
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 73,
+    "h": 104
+   },
+   "sourceSize": {
+    "w": 73,
+    "h": 104
+   },
+   "anchor": {
+    "x": 0.3698630136986301,
+    "y": 0.9615384615384616
+   },
+   "glow": [
+    [
+     35.3,
+     -78,
+     3
+    ],
+    [
+     19.5,
+     -78.7,
+     3
+    ],
+    [
+     3,
+     -24,
+     3.8
+    ]
+   ]
+  },
+  "hero_bear_colossus": {
+   "frame": {
+    "x": 247,
+    "y": 4,
+    "w": 100,
+    "h": 103
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 100,
+    "h": 103
+   },
+   "sourceSize": {
+    "w": 100,
+    "h": 103
+   },
+   "anchor": {
+    "x": 0.49,
+    "y": 0.9611650485436893
+   },
+   "glow": [
+    [
+     3,
+     -22.5,
+     4.5
+    ]
+   ]
+  },
+  "hero_bear_colossus#team": {
+   "frame": {
+    "x": 355,
+    "y": 4,
+    "w": 100,
+    "h": 103
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 100,
+    "h": 103
+   },
+   "sourceSize": {
+    "w": 100,
+    "h": 103
+   },
+   "anchor": {
+    "x": 0.49,
+    "y": 0.9611650485436893
+   },
+   "glow": [
+    [
+     3,
+     -22.5,
+     4.5
+    ]
+   ]
+  },
+  "hero_bear_colossus#rim": {
+   "frame": {
+    "x": 463,
+    "y": 4,
+    "w": 100,
+    "h": 103
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 100,
+    "h": 103
+   },
+   "sourceSize": {
+    "w": 100,
+    "h": 103
+   },
+   "anchor": {
+    "x": 0.49,
+    "y": 0.9611650485436893
+   },
+   "glow": [
+    [
+     3,
+     -22.5,
+     4.5
+    ]
+   ]
+  },
+  "hero_bear_rampage": {
+   "frame": {
+    "x": 571,
+    "y": 4,
+    "w": 77,
+    "h": 102
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 77,
+    "h": 102
+   },
+   "sourceSize": {
+    "w": 77,
+    "h": 102
+   },
+   "anchor": {
+    "x": 0.36363636363636365,
+    "y": 0.9607843137254902
+   },
+   "glow": []
+  },
+  "hero_bear_rampage#team": {
+   "frame": {
+    "x": 656,
+    "y": 4,
+    "w": 77,
+    "h": 102
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 77,
+    "h": 102
+   },
+   "sourceSize": {
+    "w": 77,
+    "h": 102
+   },
+   "anchor": {
+    "x": 0.36363636363636365,
+    "y": 0.9607843137254902
+   },
+   "glow": []
+  },
+  "hero_bear_rampage#rim": {
+   "frame": {
+    "x": 741,
+    "y": 4,
+    "w": 77,
+    "h": 102
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 77,
+    "h": 102
+   },
+   "sourceSize": {
+    "w": 77,
+    "h": 102
+   },
+   "anchor": {
+    "x": 0.36363636363636365,
+    "y": 0.9607843137254902
+   },
+   "glow": []
+  },
+  "hero_bear_gravity": {
+   "frame": {
+    "x": 826,
     "y": 4,
     "w": 100,
     "h": 96
@@ -43,7 +334,7 @@
   },
   "hero_bear_gravity#team": {
    "frame": {
-    "x": 112,
+    "x": 934,
     "y": 4,
     "w": 100,
     "h": 96
@@ -84,7 +375,7 @@
   },
   "hero_bear_gravity#rim": {
    "frame": {
-    "x": 220,
+    "x": 1042,
     "y": 4,
     "w": 100,
     "h": 96
@@ -120,6 +411,68 @@
      19.5,
      -70.5,
      4.5
+    ]
+   ]
+  },
+  "sum_gravity_well": {
+   "frame": {
+    "x": 1150,
+    "y": 4,
+    "w": 46,
+    "h": 59
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 46,
+    "h": 59
+   },
+   "sourceSize": {
+    "w": 46,
+    "h": 59
+   },
+   "anchor": {
+    "x": 0.4782608695652174,
+    "y": 0.7966101694915254
+   },
+   "glow": [
+    [
+     0,
+     -37.5,
+     8.3
+    ]
+   ]
+  },
+  "sum_gravity_collapse": {
+   "frame": {
+    "x": 1204,
+    "y": 4,
+    "w": 48,
+    "h": 52
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 48,
+    "h": 52
+   },
+   "sourceSize": {
+    "w": 48,
+    "h": 52
+   },
+   "anchor": {
+    "x": 0.5,
+    "y": 0.5
+   },
+   "glow": [
+    [
+     0,
+     0,
+     9
     ]
    ]
   }

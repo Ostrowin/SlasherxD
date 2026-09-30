@@ -1,0 +1,34 @@
+<svg data-glow="48 30 11" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="96" height="96" data-anchor="48 80" data-world="0.21" data-grime="0.7">
+  <!-- Studnia grawitacji: kuty pylon na trzech szponach, kula osobliwości. -->
+  <defs>
+    <mask id="chip_gravity_well" maskUnits="userSpaceOnUse" x="0" y="0" width="96" height="96">
+      <rect x="0" y="0" width="96" height="96" fill="#fff"/>
+      <path d="M20.0 83.0 L21.8 81.2 L23.3 80.0 L21.5 78.8 L20.0 77.0 L18.4 80.0 Z" fill="#000"/>
+    </mask>
+  </defs>
+  <g mask="url(#chip_gravity_well)">
+  <g stroke="#1a120c" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M20 80 L32 69 L64 69 L76 80 L64 90 L32 90 Z" fill="#4a4e55"/>
+    <path d="M24 80 L20 92 M72 80 L78 92 M48 90 L48 95" stroke-width="3"/>
+  </g>
+  <path d="M33 71 L63 71" stroke="#767d86" stroke-width="1.5"/>
+  <circle cx="30" cy="80" r="1.8" fill="#b070ff"/><circle cx="66" cy="80" r="1.8" fill="#b070ff"/><circle cx="48" cy="86" r="1.8" fill="#b070ff"/>
+  <g stroke="#1a120c" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M42 70 L44 44 L52 44 L54 70 Z" fill="#2c2f34"/>
+    <path d="M36 46 C40 40 56 40 60 46 L56 50 C52 46 44 46 40 50 Z" fill="#4a4e55"/>
+  </g>
+  <path d="M48 50 L48 66" stroke="#b070ff" stroke-width="1.8"/>
+  <circle cx="48" cy="30" r="11" fill="#2a1a40" stroke="#1a120c" stroke-width="2.2"/>
+  <circle cx="48" cy="30" r="5.5" fill="#b070ff"/>
+  <circle cx="45" cy="27" r="1.6" fill="#eadcff"/>
+  <ellipse cx="48" cy="30" rx="20" ry="5" fill="none" stroke="#eadcff" stroke-width="1.2" opacity="0.8"/>
+  <path d="M43.7 76.0 L47.1 74.5" stroke="#1f2226" stroke-width="1.1" stroke-linecap="round" opacity="0.6"/>
+  <path d="M43.7 75.2 L47.1 73.7" stroke="#a3acb6" stroke-width="0.9" stroke-linecap="round"/>
+  <path d="M54.8 80.5 L58.5 80.0" stroke="#1f2226" stroke-width="1.1" stroke-linecap="round" opacity="0.6"/>
+  <path d="M54.8 79.7 L58.5 79.2" stroke="#a3acb6" stroke-width="0.9" stroke-linecap="round"/>
+  <path d="M58.1 82.1 L55.9 81.1" stroke="#1f2226" stroke-width="1.1" stroke-linecap="round" opacity="0.6"/>
+  <path d="M58.1 81.3 L55.9 80.3" stroke="#a3acb6" stroke-width="0.9" stroke-linecap="round"/>
+  <path d="M35.4 82.9 L38.9 81.4" stroke="#1f2226" stroke-width="1.1" stroke-linecap="round" opacity="0.6"/>
+  <path d="M35.4 82.1 L38.9 80.6" stroke="#a3acb6" stroke-width="0.9" stroke-linecap="round"/>
+  </g>
+</svg>

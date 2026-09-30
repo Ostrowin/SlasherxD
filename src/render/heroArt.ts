@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import type { Player } from '../sim/world';
 import { makeGlowCircle } from './textures';
-import { ATLASES, HEROES, SCREEN_PX_PER_UNIT, heroFrameFor } from './artManifest';
+import { ATLASES, HEROES, SCREEN_PX_PER_UNIT, SUMMON_SCALE, SUMMONS, heroFrameFor } from './artManifest';
 
 /**
  * Wektorowe postacie graczy z atlasu (plan: docs/designs/plan-grafik.md): źródła SVG w art/svg, wypalane
@@ -35,57 +35,149 @@ export function hasHeroArt(scene: Phaser.Scene, classId: string): boolean {
   return !!frame && scene.textures.exists(ATLAS_KEY) && scene.textures.get(ATLAS_KEY).has(frame);
 }
 
+/** Przemiana: czas trwania i liczba iskier — krótko, żeby nie zasłaniać walki. */
+const MORPH_MS = 420;
+const MORPH_SPARKS = 14;
+
 /**
  * Warstwy jednej postaci. `base` to zwykły Image — GameScene trzyma go w `playerSprites`,
  * więc kamera i efekty (które czytają `.x/.y`) działają bez zmian: pozycja obrazka = środek
  * hitboxu, a stopy przesuwamy przez origin.
+ *
+ * Zestaw klatek zmienia się w trakcie runu (szeregowy → specjalizacja, plan Etap 1): `setSpec`
+ * przelicza origin, wysokość paska HP, obwódkę, pas drużyny i punkty neonu nowej klatki.
  */
 export class HeroRig {
   readonly base: Phaser.GameObjects.Image;
-  private readonly rim: Phaser.GameObjects.Image | null;
-  private readonly team: Phaser.GameObjects.Image | null;
+  private readonly rim: Phaser.GameObjects.Image;
+  private readonly team: Phaser.GameObjects.Image;
   private readonly shadow: Phaser.GameObjects.Ellipse;
-  private readonly glows: { img: Phaser.GameObjects.Image; x: number; y: number; r: number }[] = [];
-  private readonly originX: number;
-  private readonly originY: number;
+  private readonly scene: Phaser.Scene;
+  private readonly classId: string;
+  private readonly energy: number;
+  private glows: { img: Phaser.GameObjects.Image; x: number; y: number; r: number }[] = [];
+  private originX = 0.5;
+  private originY = 0.5;
   private facing = 1;
+  private frameName = '';
   /** Wysokość postaci nad środkiem hitboxu — tam idą paski HP kolegów. */
-  readonly topOffset: number;
+  topOffset = 0;
 
   /**
    * @param playerColor kolor slotu gracza (`PLAYER_COLORS`) — obwódka i pas drużyny (D3 w planie).
+   * @param specIndex specjalizacja na starcie (-1 = szeregowy).
    */
-  constructor(scene: Phaser.Scene, classId: string, playerColor: number) {
-    const frameName = heroFrameFor(classId, -1)!;
-    const energy = HEROES[classId].energy;
-    const tex = scene.textures.get(ATLAS_KEY);
-    const frame = tex.get(frameName);
-    const data = frame.customData as { glow?: [number, number, number][] };
-
+  constructor(scene: Phaser.Scene, classId: string, playerColor: number, specIndex: number) {
+    this.scene = scene;
+    this.classId = classId;
+    this.energy = HEROES[classId].energy;
+    const first = heroFrameFor(classId, specIndex)!;
     this.shadow = scene.add.ellipse(0, 0, 40, 12, 0x000000, 0.4).setDepth(2.9);
     // obwódka POD postacią i nad cieniem — inaczej przykryłaby rysunek
-    this.rim = tex.has(frameName + '#rim')
-      ? scene.add.image(0, 0, ATLAS_KEY, frameName + '#rim').setTint(playerColor).setDepth(2.95)
-      : null;
-    this.base = scene.add.image(0, 0, ATLAS_KEY, frameName).setDepth(3);
+    this.rim = scene.add.image(0, 0, ATLAS_KEY, first).setTint(playerColor).setDepth(2.95);
+    this.base = scene.add.image(0, 0, ATLAS_KEY, first).setDepth(3);
+    this.team = scene.add.image(0, 0, ATLAS_KEY, first).setTint(playerColor).setDepth(3.01);
+    makeGlowCircle(scene, GLOW_KEY, GLOW_RADIUS);
+    this.setFrameSet(first);
+  }
+
+  /** Klatka dla specjalizacji; `playEffect` = błysk i iskry (zwykły wybór w trakcie walki). */
+  setSpec(specIndex: number, playEffect: boolean): void {
+    const next = heroFrameFor(this.classId, specIndex);
+    if (!next || next === this.frameName) return;
+    this.setFrameSet(next);
+    if (playEffect) this.playMorph();
+  }
+
+  private setFrameSet(frameName: string): void {
+    const tex = this.scene.textures.get(ATLAS_KEY);
+    const frame = tex.get(frameName);
+    this.frameName = frameName;
+    this.base.setFrame(frameName);
+    // obwódka i pas są opcjonalne per klatka (np. rysunek bez magenty) — brak = warstwa ukryta
+    const layers: [Phaser.GameObjects.Image, string][] = [
+      [this.rim, '#rim'],
+      [this.team, '#team'],
+    ];
+    for (const [img, suffix] of layers) {
+      const has = tex.has(frameName + suffix);
+      img.setVisible(has);
+      if (has) img.setFrame(frameName + suffix);
+    }
     // origin z pivota stóp, przesunięty w górę o FEET_OFFSET — pozycja Image = środek hitboxu
     this.originX = frame.pivotX;
     this.originY = frame.pivotY - FEET_OFFSET / DISPLAY_SCALE / frame.height;
-    this.team = tex.has(frameName + '#team')
-      ? scene.add.image(0, 0, ATLAS_KEY, frameName + '#team').setTint(playerColor).setDepth(3.01)
-      : null;
-    for (const img of [this.rim, this.base, this.team]) img?.setOrigin(this.originX, this.originY);
-
-    makeGlowCircle(scene, GLOW_KEY, GLOW_RADIUS);
-    for (const [x, y, r] of data.glow ?? []) {
-      const img = scene.add
-        .image(0, 0, GLOW_KEY)
-        .setTint(energy)
-        .setBlendMode(Phaser.BlendModes.ADD)
-        .setDepth(3.02);
-      this.glows.push({ img, x, y, r });
-    }
+    for (const img of [this.rim, this.base, this.team]) img.setOrigin(this.originX, this.originY);
     this.topOffset = frame.pivotY * frame.height * DISPLAY_SCALE - FEET_OFFSET;
+
+    for (const g of this.glows) g.img.destroy();
+    const data = frame.customData as { glow?: [number, number, number][] };
+    this.glows = (data.glow ?? []).map(([x, y, r]) => ({
+      img: this.scene.add
+        .image(0, 0, GLOW_KEY)
+        .setTint(this.energy)
+        .setBlendMode(Phaser.BlendModes.ADD)
+        .setDepth(3.02),
+      x,
+      y,
+      r,
+    }));
+  }
+
+  /**
+   * Przemiana przy wyborze specjalizacji: biały błysk sylwetki, pierścień i iskry w kolorze energii rasy.
+   * Obiekty jednorazowe, sprzątane po ~0,4 s — raz na run na gracza, więc bez poolingu.
+   */
+  private playMorph(): void {
+    const { scene, base } = this;
+    const flash = scene.add
+      .image(base.x, base.y, ATLAS_KEY, this.frameName)
+      .setOrigin(this.originX, this.originY)
+      .setScale(base.scaleX, base.scaleY)
+      .setTintFill(0xffffff)
+      .setDepth(3.05);
+    scene.tweens.add({
+      targets: flash,
+      alpha: 0,
+      scaleX: base.scaleX * 1.25,
+      scaleY: base.scaleY * 1.25,
+      duration: MORPH_MS,
+      ease: 'Quad.easeOut',
+      onComplete: () => flash.destroy(),
+    });
+    const ring = scene.add
+      .circle(base.x, base.y, 18, this.energy, 0)
+      .setStrokeStyle(3, this.energy, 1)
+      .setBlendMode(Phaser.BlendModes.ADD)
+      .setDepth(3.04);
+    scene.tweens.add({
+      targets: ring,
+      scale: 4,
+      alpha: 0,
+      duration: MORPH_MS,
+      ease: 'Cubic.easeOut',
+      onComplete: () => ring.destroy(),
+    });
+    for (let i = 0; i < MORPH_SPARKS; i++) {
+      const a = (i / MORPH_SPARKS) * Math.PI * 2;
+      const dist = 40 + (i % 3) * 14;
+      const spark = scene.add
+        .image(base.x, base.y, GLOW_KEY)
+        .setTint(this.energy)
+        .setBlendMode(Phaser.BlendModes.ADD)
+        .setScale(0.5)
+        .setDepth(3.04);
+      scene.tweens.add({
+        targets: spark,
+        x: base.x + Math.cos(a) * dist,
+        y: base.y + Math.sin(a) * dist,
+        alpha: 0,
+        scale: 0.15,
+        duration: MORPH_MS + (i % 4) * 60,
+        ease: 'Quad.easeOut',
+        onComplete: () => spark.destroy(),
+      });
+    }
   }
 
   /**
@@ -103,7 +195,7 @@ export class HeroRig {
 
     for (const img of [this.rim, this.base, this.team]) {
       img
-        ?.setPosition(x, y + bob)
+        .setPosition(x, y + bob)
         .setScale(s * this.facing, s)
         .setRotation(tilt)
         .setAlpha(alpha);
@@ -129,3 +221,15 @@ export class HeroRig {
     }
   }
 }
+
+/**
+ * Przywołaniec z atlasu (`SUMMONS` w manifeście) albo `null` = zostaje świecący wielokąt.
+ * Sprite z atlasu NIE dostaje `setTint(def.color)` — kolor przemalowałby rysunek (plan, Etap 1).
+ */
+export function summonFrameFor(scene: Phaser.Scene, minionId: string): string | null {
+  const frame = SUMMONS[minionId];
+  return frame && scene.textures.exists(ATLAS_KEY) && scene.textures.get(ATLAS_KEY).has(frame) ? frame : null;
+}
+
+/** Skala wyświetlania przywołańców z atlasu (`SUMMON_SCALE` w manifeście × gęstość postaci). */
+export const SUMMON_DISPLAY_SCALE = DISPLAY_SCALE * SUMMON_SCALE;

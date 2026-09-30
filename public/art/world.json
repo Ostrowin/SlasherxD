@@ -1,0 +1,199 @@
+{
+ "frames": {
+  "obs_crater_vent": {
+   "frame": {
+    "x": 4,
+    "y": 4,
+    "w": 174,
+    "h": 174
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 174,
+    "h": 174
+   },
+   "sourceSize": {
+    "w": 174,
+    "h": 174
+   },
+   "anchor": {
+    "x": 0.46551724137931033,
+    "y": 0.46551724137931033
+   },
+   "glow": [
+    [
+     0,
+     3,
+     36
+    ]
+   ]
+  },
+  "obs_station_reactor": {
+   "frame": {
+    "x": 186,
+    "y": 4,
+    "w": 174,
+    "h": 174
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 174,
+    "h": 174
+   },
+   "sourceSize": {
+    "w": 174,
+    "h": 174
+   },
+   "anchor": {
+    "x": 0.46551724137931033,
+    "y": 0.46551724137931033
+   },
+   "glow": [
+    [
+     0,
+     0,
+     18
+    ]
+   ]
+  },
+  "obs_crater_spire": {
+   "frame": {
+    "x": 368,
+    "y": 4,
+    "w": 177,
+    "h": 171
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 177,
+    "h": 171
+   },
+   "sourceSize": {
+    "w": 177,
+    "h": 171
+   },
+   "anchor": {
+    "x": 0.4745762711864407,
+    "y": 0.4678362573099415
+   },
+   "glow": []
+  },
+  "obs_crater_boulder": {
+   "frame": {
+    "x": 553,
+    "y": 4,
+    "w": 175,
+    "h": 166
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 175,
+    "h": 166
+   },
+   "sourceSize": {
+    "w": 175,
+    "h": 166
+   },
+   "anchor": {
+    "x": 0.4685714285714286,
+    "y": 0.4578313253012048
+   },
+   "glow": [
+    [
+     -15,
+     12,
+     10.5
+    ],
+    [
+     15,
+     27,
+     9
+    ]
+   ]
+  },
+  "obs_station_wreck": {
+   "frame": {
+    "x": 736,
+    "y": 4,
+    "w": 179,
+    "h": 154
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 179,
+    "h": 154
+   },
+   "sourceSize": {
+    "w": 179,
+    "h": 154
+   },
+   "anchor": {
+    "x": 0.48044692737430167,
+    "y": 0.4675324675324675
+   },
+   "glow": [
+    [
+     4.5,
+     39,
+     7.5
+    ]
+   ]
+  },
+  "obs_station_crates": {
+   "frame": {
+    "x": 923,
+    "y": 4,
+    "w": 174,
+    "h": 149
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 174,
+    "h": 149
+   },
+   "sourceSize": {
+    "w": 174,
+    "h": 149
+   },
+   "anchor": {
+    "x": 0.46551724137931033,
+    "y": 0.4697986577181208
+   },
+   "glow": [
+    [
+     51,
+     -39,
+     7.5
+    ]
+   ]
+  }
+ },
+ "meta": {
+  "app": "tools/bakeArt.ts",
+  "image": "world.png",
+  "size": {
+   "w": 2048,
+   "h": 256
+  },
+  "scale": 1,
+  "bakeScale": 1.5
+ }
+}

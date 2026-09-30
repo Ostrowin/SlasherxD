@@ -9,5 +9,8 @@ dist/
 # Wynik kompilacji bencha (npm run bench)
 .bench/
 
+# Wyniki pomiarów z szybkiego startu (npm run dev → .dev/fps.jsonl)
+.dev/
+
 # Lokalny indeks i stan Visual Studio (pliki blokowane przez otwarte VS)
 .vs/

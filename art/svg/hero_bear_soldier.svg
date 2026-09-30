@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 144" width="128" height="144" data-anchor="64 136" data-grime="0.8">
-  <!-- PODGLĄD warstwy brutalu: szeregowy niedźwiedź z TD + grit.py (blizny, łata, rysy, wyszczerbienia). -->
+<svg data-glow="111 32 4; 90 31 4; 68 104 5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 144" width="128" height="144" data-anchor="64 136" data-world="0.21" data-grime="0.8">
+  <!-- Szeregowy niedźwiedź: topór z runą, kuty napierśnik, futro na barkach (TD bear_soldier + brutal). -->
   <defs>
     <mask id="chip_bear_soldier" maskUnits="userSpaceOnUse" x="0" y="0" width="128" height="144">
       <rect x="0" y="0" width="128" height="144" fill="#fff"/>

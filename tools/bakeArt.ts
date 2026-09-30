@@ -2,7 +2,7 @@
  * Wypalanie grafiki: art/svg/*.svg → public/art/<atlas>.png + <atlas>.json (Phaser JSON hash).
  * Odpowiednik tools/bake_art.gd z TowerDefense (grafika.md p. 5). Gra czyta tylko wyniki — SVG to źródła.
  *
- *   npm run bake-art              — wypala atlasy z manifestu (src/render/artManifest.ts)
+ *   npm run bake-art              — wypala atlasy z manifestu (src/render/artManifest.ts) i kafle aren (bakeTiles.ts)
  *   npm run bake-art -- --sheet   — to samo + karta kontrolna art/sheet.png (też art/preview/*.svg)
  *   node tools/bakeArt.ts --selftest   — autotest rasteryzacji i maski drużyny (część `npm test`)
  *
@@ -27,12 +27,17 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync
 import { basename, join } from 'node:path';
 import {
   ATLASES,
+  MAP_ART,
+  OBSTACLE_FOOT,
   PLAYER_COLORS,
   RIM_SCREEN_PX,
   SCREEN_PX_PER_UNIT,
   SPRITES,
+  SUMMON_SCALE,
+  SUMMONS,
   type AtlasDef,
 } from '../src/render/artManifest.ts';
+import { TILE, TILES } from './bakeTiles.ts';
 
 const SRC = 'art/svg';
 const PREVIEW = 'art/preview';
@@ -396,6 +401,16 @@ function scratch(src: Layer, out: Uint8ClampedArray, x: number, y: number, amoun
 
 // ---------------------------------------------------------------- atlas
 
+/**
+ * Zapis tylko przy zmianie treści. Wypalanie jest deterministyczne, a Vite przeładowuje stronę przy KAŻDYM
+ * zapisie w `public/` — bez tego `npm test` (który wypala) restartował grę otwartą w `npm run dev`.
+ */
+function writeIfChanged(path: string, data: Buffer | string): void {
+  const buf = typeof data === 'string' ? Buffer.from(data, 'utf-8') : data;
+  if (existsSync(path) && readFileSync(path).equals(buf)) return;
+  writeFileSync(path, buf);
+}
+
 /** Pakowanie półkowe (od najwyższych) jednego atlasu; błąd, gdy nie mieści się w `maxSize`. */
 function writeAtlas(atlas: AtlasDef, items: Baked[]): void {
   const width = atlas.maxSize;
@@ -443,9 +458,9 @@ function writeAtlas(atlas: AtlasDef, items: Baked[]): void {
       glow: r.item.glow.map((a) => a.map((v) => Math.round(v * 10) / 10)),
     };
   }
-  writeFileSync(join(OUT, `${atlas.key}.png`), PNG.sync.write(png));
+  writeIfChanged(join(OUT, `${atlas.key}.png`), PNG.sync.write(png));
   const meta = { app: 'tools/bakeArt.ts', image: `${atlas.key}.png`, size: { w: width, h: height }, scale: 1, bakeScale: atlas.scale };
-  writeFileSync(join(OUT, `${atlas.key}.json`), JSON.stringify({ frames, meta }, null, 1));
+  writeIfChanged(join(OUT, `${atlas.key}.json`), JSON.stringify({ frames, meta }, null, 1));
   const fill = Math.round((used / (width * atlas.maxSize)) * 100);
   console.log(`bakeArt: atlas ${atlas.key} ${width}×${height}, ${items.length} sprite'ów, ${fill}% budżetu ${atlas.maxSize}²`);
 }
@@ -459,9 +474,11 @@ interface Img {
   px: Float32Array;
 }
 
-/** Sprite w rozmiarze z gry: nadpróbkowanie 3×3 na piksel docelowy, warstwy obwódka → baza → pas. */
-function composeInGame(it: Baked, color: number, mirror: boolean): Img {
-  const f = SCREEN_PX_PER_UNIT / it.atlas.scale;
+/**
+ * Sprite w rozmiarze z gry: nadpróbkowanie 3×3 na piksel docelowy, warstwy obwódka → baza → pas.
+ * `f` = piksele ekranu na piksel atlasu (postacie: SCREEN_PX_PER_UNIT / skala; przeszkody: zależnie od promienia).
+ */
+function composeInGame(it: Baked, color: number, mirror: boolean, f: number): Img {
   const w = Math.ceil(it.base.w * f);
   const h = Math.ceil(it.base.h * f);
   const tint = [((color >> 16) & 255) / 255, ((color >> 8) & 255) / 255, (color & 255) / 255];
@@ -515,18 +532,47 @@ function composeInGame(it: Baked, color: number, mirror: boolean): Img {
   return { w, h, px: out };
 }
 
-function writeSheet(items: Baked[]): void {
-  const colors = PLAYER_COLORS.slice(0, 3);
+interface Cell {
+  img: Img;
+  zoom: number;
+  /** Kafel podłoża pod komórką (nazwa z TILES) albo `null` = tło gry z siatką. */
+  floor: string | null;
+}
+
+/**
+ * Karta kontrolna na prawdziwych podłogach aren (Etap 2):
+ *   postacie i przywołańce: 2 kolory graczy na Station, kolor + lustro na Crater, powiększenie 4× na Station,
+ *   przeszkody: promień 40 / 65 / 90 (min / środek / maks. z symulacji) na podłodze swojej mapy.
+ */
+function writeSheet(items: Baked[], tiles: Record<string, PNG>): void {
   const ZOOM = 4;
   const GAP = 16;
-  const rows = items.map((it) => ({
-    it,
-    variants: [...colors.map((c) => composeInGame(it, c, false)), composeInGame(it, colors[0], true)],
-  }));
-  const cellW = Math.max(...rows.map((r) => r.variants[0].w)) + GAP;
-  const zoomW = Math.max(...rows.map((r) => r.variants[0].w * ZOOM)) + GAP;
-  const width = GAP + cellW * 4 + zoomW;
-  const rowH = rows.map((r) => r.variants[0].h * ZOOM + GAP);
+  const floorOf = (name: string): string =>
+    Object.entries(MAP_ART).find(([, m]) => m.obstacles.some((o) => name.endsWith(o)))?.[1].tile ?? 'station';
+  const rows: Cell[][] = items.map((it) => {
+    if (it.atlas.key === 'world') {
+      const floor = floorOf(it.name);
+      return [40, 65, 90].map((r) => ({
+        img: composeInGame(it, 0xffffff, false, r / (OBSTACLE_FOOT * it.atlas.scale)),
+        zoom: 1,
+        floor,
+      }));
+    }
+    const isSummon = Object.values(SUMMONS).includes(it.name);
+    const f = (SCREEN_PX_PER_UNIT / it.atlas.scale) * (isSummon ? SUMMON_SCALE : 1);
+    const [c0, c1] = PLAYER_COLORS;
+    return [
+      { img: composeInGame(it, c0, false, f), zoom: 1, floor: 'station' },
+      { img: composeInGame(it, c1, false, f), zoom: 1, floor: 'station' },
+      { img: composeInGame(it, c0, false, f), zoom: 1, floor: 'crater' },
+      { img: composeInGame(it, c1, true, f), zoom: 1, floor: 'crater' },
+      { img: composeInGame(it, c0, false, f), zoom: ZOOM, floor: 'station' },
+    ];
+  });
+  const colW: number[] = [];
+  for (const row of rows) row.forEach((c, ci) => (colW[ci] = Math.max(colW[ci] ?? 0, c.img.w * c.zoom + GAP)));
+  const rowH = rows.map((row) => Math.max(...row.map((c) => c.img.h * c.zoom)) + GAP);
+  const width = GAP + colW.reduce((a, b) => a + b, 0);
   const height = GAP + rowH.reduce((a, b) => a + b, 0);
 
   const png = new PNG({ width, height });
@@ -537,6 +583,16 @@ function writeSheet(items: Baked[]): void {
       for (let c = 0; c < 3; c++) png.data[i + c] = line ? BG[c] + (GRID[c] - BG[c]) * 0.35 : BG[c];
       png.data[i + 3] = 255;
     }
+  const floorRect = (floor: string, ox: number, oy: number, w: number, h: number): void => {
+    const t = tiles[floor];
+    if (!t) return;
+    for (let y = 0; y < h; y++)
+      for (let x = 0; x < w; x++) {
+        const s = (((oy + y) % TILE) * TILE + ((ox + x) % TILE)) * 4;
+        const d = ((oy + y) * width + ox + x) * 4;
+        for (let c = 0; c < 3; c++) png.data[d + c] = t.data[s + c];
+      }
+  };
   const blit = (img: Img, ox: number, oy: number, zoom: number): void => {
     for (let y = 0; y < img.h * zoom; y++)
       for (let x = 0; x < img.w * zoom; x++) {
@@ -548,14 +604,18 @@ function writeSheet(items: Baked[]): void {
       }
   };
   let oy = GAP;
-  rows.forEach((r, ri) => {
-    r.variants.forEach((v, vi) => blit(v, GAP + vi * cellW, oy, 1));
-    blit(r.variants[0], GAP + cellW * 4, oy, ZOOM);
-    console.log(`  wiersz ${ri + 1}: ${r.it.name}`);
+  rows.forEach((row, ri) => {
+    let ox = GAP;
+    row.forEach((c, ci) => {
+      if (c.floor) floorRect(c.floor, ox - GAP / 2, oy - GAP / 2, colW[ci], rowH[ri]);
+      blit(c.img, ox, oy, c.zoom);
+      ox += colW[ci];
+    });
+    console.log(`  wiersz ${ri + 1}: ${items[ri].name}`);
     oy += rowH[ri];
   });
   writeFileSync(SHEET, PNG.sync.write(png));
-  console.log(`bakeArt: karta ${SHEET} — kolumny: 3 kolory graczy, lustro, powiększenie ${ZOOM}×`);
+  console.log(`bakeArt: karta ${SHEET} — postacie: Station ×2 kolory, Crater (kolor + lustro), 4×; przeszkody: r 40/65/90`);
 }
 
 // ---------------------------------------------------------------- autotest
@@ -587,11 +647,27 @@ function selftest(): void {
     if (at(b.rim, lx, my)[3] !== 0) fails.push('#rim zachodzi na wnętrze sylwetki');
     if (at(b.rim, 0, my)[3] === 0 && at(b.rim, 1, my)[3] === 0) fails.push('#rim nie otacza sylwetki z lewej');
   }
+  // kafle aren muszą być bezszwowe: skok na styku (ostatnia ↔ pierwsza kolumna/wiersz) nie większy niż
+  // typowa różnica między sąsiednimi pikselami wewnątrz kafla (z zapasem)
+  for (const [key, make] of Object.entries(TILES)) {
+    const t = PNG.sync.read(make());
+    const px = (x: number, y: number): number => {
+      const i = (y * TILE + x) * 4;
+      return t.data[i] + t.data[i + 1] + t.data[i + 2];
+    };
+    let wrap = 0;
+    let inner = 0;
+    for (let k = 0; k < TILE; k++) {
+      wrap += Math.abs(px(TILE - 1, k) - px(0, k)) + Math.abs(px(k, TILE - 1) - px(k, 0));
+      inner += Math.abs(px(TILE / 2, k) - px(TILE / 2 + 1, k)) + Math.abs(px(k, TILE / 2) - px(k, TILE / 2 + 1));
+    }
+    if (wrap > inner * 2 + TILE) fails.push(`kafel ${key}: widoczny szew (styk ${wrap}, wnętrze ${inner})`);
+  }
   if (fails.length) {
     console.error('bakeArt --selftest: BŁĄD\n  ' + fails.join('\n  '));
     process.exit(1);
   }
-  console.log('bakeArt --selftest: OK (maska drużyny, demultiply, obwódka tylko na zewnątrz)');
+  console.log('bakeArt --selftest: OK (maska drużyny, demultiply, obwódka tylko na zewnątrz, kafle bez szwu)');
 }
 
 // ---------------------------------------------------------------- main
@@ -623,6 +699,16 @@ function main(): void {
   }
   for (const atlas of Object.values(ATLASES)) writeAtlas(atlas, baked.filter((b) => b.atlas === atlas));
 
+  // kafle podłoża aren — osobne tekstury pod tileSprite, nie region atlasu
+  mkdirSync(join(OUT, 'tiles'), { recursive: true });
+  const tiles: Record<string, PNG> = {};
+  for (const [key, make] of Object.entries(TILES)) {
+    const buf = make();
+    writeIfChanged(join(OUT, 'tiles', `${key}.png`), buf);
+    tiles[key] = PNG.sync.read(buf);
+  }
+  console.log(`bakeArt: kafle ${Object.keys(TILES).join(', ')} (${TILE}×${TILE})`);
+
   if (args.includes('--sheet')) {
     // art/preview/*.svg: próby spoza manifestu (np. warstwa brutalu) — tylko na kartę, nie do atlasu
     const previews = existsSync(PREVIEW)
@@ -633,7 +719,7 @@ function main(): void {
     const extra = previews.map((f) =>
       bake(`preview/${basename(f, '.svg')}`, readFileSync(join(PREVIEW, f), 'utf-8'), ATLASES.heroes, true),
     );
-    writeSheet([...baked, ...extra]);
+    writeSheet([...baked, ...extra], tiles);
   }
 }
 
